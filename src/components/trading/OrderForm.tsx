@@ -1,0 +1,226 @@
+import { useState } from "react";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
+
+interface OrderFormProps {
+  asset: any;
+}
+
+const OrderForm = ({ asset }: OrderFormProps) => {
+  const { user } = useAuth();
+  const [orderType, setOrderType] = useState("market");
+  const [side, setSide] = useState<"buy" | "sell">("buy");
+  const [quantity, setQuantity] = useState("");
+  const [price, setPrice] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmitOrder = async () => {
+    if (!user || !asset) return;
+
+    if (!quantity || Number(quantity) <= 0) {
+      toast.error("Please enter a valid quantity");
+      return;
+    }
+
+    if (orderType === "limit" && (!price || Number(price) <= 0)) {
+      toast.error("Please enter a valid price");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const orderPrice = orderType === "market" ? Number(asset.current_price) : Number(price);
+      const orderQuantity = Number(quantity);
+      const totalCost = orderPrice * orderQuantity;
+
+      // Check balance for buy orders
+      if (side === "buy") {
+        const { data: balanceData } = await supabase
+          .from("user_balances")
+          .select("usdt_balance")
+          .eq("user_id", user.id)
+          .single();
+
+        if (!balanceData || Number(balanceData.usdt_balance) < totalCost) {
+          toast.error("Insufficient balance");
+          setLoading(false);
+          return;
+        }
+      }
+
+      // Create order
+      const { error: orderError } = await supabase
+        .from("orders")
+        .insert({
+          user_id: user.id,
+          asset_id: asset.id,
+          order_type: orderType,
+          side: side,
+          quantity: orderQuantity,
+          price: orderType === "limit" ? orderPrice : null,
+          status: orderType === "market" ? "filled" : "pending",
+          filled_quantity: orderType === "market" ? orderQuantity : 0,
+          average_fill_price: orderType === "market" ? orderPrice : 0,
+          filled_at: orderType === "market" ? new Date().toISOString() : null,
+        });
+
+      if (orderError) throw orderError;
+
+      // For market orders, execute immediately
+      if (orderType === "market") {
+        // Update balance
+        const balanceChange = side === "buy" ? -totalCost : totalCost;
+        
+        const { data: currentBalance } = await supabase
+          .from("user_balances")
+          .select("usdt_balance")
+          .eq("user_id", user.id)
+          .single();
+
+        if (currentBalance) {
+          await supabase
+            .from("user_balances")
+            .update({ 
+              usdt_balance: Number(currentBalance.usdt_balance) + balanceChange 
+            })
+            .eq("user_id", user.id);
+        }
+
+        // Update or create portfolio entry
+        const { data: existingPortfolio } = await supabase
+          .from("portfolios")
+          .select("*")
+          .eq("user_id", user.id)
+          .eq("asset_id", asset.id)
+          .single();
+
+        if (existingPortfolio) {
+          const newQuantity = side === "buy" 
+            ? Number(existingPortfolio.quantity) + orderQuantity
+            : Number(existingPortfolio.quantity) - orderQuantity;
+
+          await supabase
+            .from("portfolios")
+            .update({
+              quantity: newQuantity,
+              average_buy_price: orderPrice,
+              total_invested: newQuantity * orderPrice,
+              updated_at: new Date().toISOString()
+            })
+            .eq("user_id", user.id)
+            .eq("asset_id", asset.id);
+        } else if (side === "buy") {
+          await supabase
+            .from("portfolios")
+            .insert({
+              user_id: user.id,
+              asset_id: asset.id,
+              quantity: orderQuantity,
+              average_buy_price: orderPrice,
+              total_invested: totalCost,
+            });
+        }
+
+        toast.success(`${side === "buy" ? "Bought" : "Sold"} ${orderQuantity} ${asset.symbol}`);
+      } else {
+        toast.success("Limit order placed successfully");
+      }
+
+      setQuantity("");
+      setPrice("");
+    } catch (error: any) {
+      toast.error(error.message || "Failed to place order");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!asset) return null;
+
+  return (
+    <Card className="p-4">
+      <Tabs value={side} onValueChange={(v) => setSide(v as "buy" | "sell")}>
+        <TabsList className="grid w-full grid-cols-2 mb-4">
+          <TabsTrigger value="buy" className="data-[state=active]:bg-success">
+            Buy
+          </TabsTrigger>
+          <TabsTrigger value="sell" className="data-[state=active]:bg-destructive">
+            Sell
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value={side} className="space-y-4">
+          <div className="space-y-2">
+            <Label>Order Type</Label>
+            <Select value={orderType} onValueChange={setOrderType}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="market">Market</SelectItem>
+                <SelectItem value="limit">Limit</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {orderType === "limit" && (
+            <div className="space-y-2">
+              <Label>Price (USDT)</Label>
+              <Input
+                type="number"
+                placeholder="0.00"
+                value={price}
+                onChange={(e) => setPrice(e.target.value)}
+                step="0.01"
+              />
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <Label>Quantity ({asset.symbol})</Label>
+            <Input
+              type="number"
+              placeholder="0.00"
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
+              step="0.0001"
+            />
+          </div>
+
+          <div className="p-3 bg-secondary rounded-lg space-y-1">
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Total</span>
+              <span className="font-mono font-semibold">
+                {quantity && (orderType === "market" || price)
+                  ? `${(Number(quantity) * (orderType === "market" ? Number(asset.current_price) : Number(price))).toFixed(2)} USDT`
+                  : "0.00 USDT"}
+              </span>
+            </div>
+          </div>
+
+          <Button
+            onClick={handleSubmitOrder}
+            disabled={loading}
+            className={`w-full ${
+              side === "buy" 
+                ? "bg-success hover:bg-success/90" 
+                : "bg-destructive hover:bg-destructive/90"
+            }`}
+          >
+            {loading ? "Processing..." : `${side === "buy" ? "Buy" : "Sell"} ${asset.symbol}`}
+          </Button>
+        </TabsContent>
+      </Tabs>
+    </Card>
+  );
+};
+
+export default OrderForm;
