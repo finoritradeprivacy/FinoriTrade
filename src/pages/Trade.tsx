@@ -11,6 +11,7 @@ import Portfolio from "@/components/trading/Portfolio";
 import OpenOrders from "@/components/trading/OpenOrders";
 import TradeHistory from "@/components/trading/TradeHistory";
 import NewsFeed from "@/components/trading/NewsFeed";
+import PlayerProfile from "@/components/trading/PlayerProfile";
 
 const Trade = () => {
   const { user, loading } = useAuth();
@@ -81,6 +82,7 @@ const Trade = () => {
           </div>
 
           <div className="lg:col-span-3 space-y-4">
+            <PlayerProfile />
             <OrderBook asset={selectedAsset} />
             <OrderForm asset={selectedAsset} />
             <Portfolio />
