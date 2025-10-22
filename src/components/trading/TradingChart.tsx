@@ -51,6 +51,8 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
   const [drawings, setDrawings] = useState<Drawing[]>([]);
   const [showMA, setShowMA] = useState(false);
   const [showVolume, setShowVolume] = useState(true);
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [lastCandle, setLastCandle] = useState<CandlestickData | null>(null);
 
   // Initialize chart
   useEffect(() => {
@@ -113,8 +115,7 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
     chartRef.current = chart;
     candlestickSeriesRef.current = candlestickSeries;
 
-    // Generate initial candlestick data
-    generateHistoricalData();
+    setIsInitialized(true);
 
     // Handle resize
     const handleResize = () => {
@@ -214,14 +215,29 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
     // Calculate the start time of the current candle
     const currentCandleTime = Math.floor(now / timeframeSeconds) * timeframeSeconds as UTCTimestamp;
     
-    // Update the current candle (this will update if exists, or create if new interval)
-    candlestickSeriesRef.current.update({
-      time: currentCandleTime,
-      open: newPrice,
-      high: newPrice * 1.001,
-      low: newPrice * 0.999,
-      close: newPrice,
-    });
+    // If we have a last candle and it's the same time, update it
+    if (lastCandle && lastCandle.time === currentCandleTime) {
+      const updatedCandle: CandlestickData = {
+        time: currentCandleTime,
+        open: lastCandle.open,
+        high: Math.max(lastCandle.high, newPrice),
+        low: Math.min(lastCandle.low, newPrice),
+        close: newPrice,
+      };
+      candlestickSeriesRef.current.update(updatedCandle);
+      setLastCandle(updatedCandle);
+    } else {
+      // New candle period
+      const newCandle: CandlestickData = {
+        time: currentCandleTime,
+        open: newPrice,
+        high: newPrice,
+        low: newPrice,
+        close: newPrice,
+      };
+      candlestickSeriesRef.current.update(newCandle);
+      setLastCandle(newCandle);
+    }
   };
 
   // Load trades for current asset
@@ -292,6 +308,77 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
     }
   }, [drawings, asset]);
 
+  // Handle chart click for drawing tools
+  useEffect(() => {
+    if (!chartRef.current || drawingTool === 'none') return;
+
+    const handleClick = (param: any) => {
+      if (!param.point || !param.time) return;
+
+      const price = candlestickSeriesRef.current?.coordinateToPrice(param.point.y);
+      if (!price) return;
+
+      const newPoint = {
+        time: param.time as number,
+        price: price as number,
+      };
+
+      if (drawingTool === 'horizontal') {
+        // Create horizontal line
+        const newDrawing: Drawing = {
+          id: `${Date.now()}`,
+          type: 'horizontal',
+          points: [newPoint],
+        };
+        setDrawings(prev => [...prev, newDrawing]);
+        toast.success('Horizontal line added');
+        setDrawingTool('none');
+      } else if (drawingTool === 'text') {
+        // Create text note
+        const text = prompt('Enter note text:');
+        if (text) {
+          const newDrawing: Drawing = {
+            id: `${Date.now()}`,
+            type: 'text',
+            points: [newPoint],
+            text,
+          };
+          setDrawings(prev => [...prev, newDrawing]);
+          toast.success('Note added');
+        }
+        setDrawingTool('none');
+      }
+      // For trendline and rectangle, we'd need two points - simplified for now
+    };
+
+    chartRef.current.subscribeClick(handleClick);
+
+    return () => {
+      if (chartRef.current) {
+        chartRef.current.unsubscribeClick(handleClick);
+      }
+    };
+  }, [drawingTool]);
+
+  // Render drawings on chart
+  useEffect(() => {
+    if (!candlestickSeriesRef.current || drawings.length === 0) return;
+
+    // Create price lines for horizontal drawings
+    drawings.forEach(drawing => {
+      if (drawing.type === 'horizontal') {
+        candlestickSeriesRef.current?.createPriceLine({
+          price: drawing.points[0].price,
+          color: '#FCD535',
+          lineWidth: 2,
+          lineStyle: 2,
+          axisLabelVisible: true,
+          title: 'Support/Resistance',
+        });
+      }
+    });
+  }, [drawings]);
+
   // Handle timeframe change
   const handleTimeframeChange = (tf: Timeframe) => {
     setTimeframe(tf);
@@ -299,10 +386,12 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
     toast.success(`Timeframe changed to ${tf}`);
   };
 
-  // Regenerate data when timeframe or asset changes
+  // Generate historical data only once on init and when timeframe changes
   useEffect(() => {
-    generateHistoricalData();
-  }, [timeframe, asset]);
+    if (isInitialized) {
+      generateHistoricalData();
+    }
+  }, [timeframe, isInitialized]);
 
   // Clear all drawings
   const clearDrawings = () => {
