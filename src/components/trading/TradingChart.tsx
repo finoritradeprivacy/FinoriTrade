@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { createChart, IChartApi, ISeriesApi, CandlestickData, Time, UTCTimestamp, CandlestickSeries } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, CandlestickData, Time, UTCTimestamp, CandlestickSeries, LineSeries } from 'lightweight-charts';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
@@ -43,6 +43,9 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | any>(null);
+  // Keep references to overlay elements so we can cleanly re-render drawings
+  const priceLinesRef = useRef<any[]>([]);
+  const trendlineSeriesRef = useRef<Map<string, ISeriesApi<'Line'>>>(new Map());
   
   const [timeframe, setTimeframe] = useState<Timeframe>('1m');
   const [chartType, setChartType] = useState<ChartType>('candlestick');
@@ -368,16 +371,33 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
 
   // Render drawings on chart
   useEffect(() => {
-    if (!candlestickSeriesRef.current) return;
+    const series = candlestickSeriesRef.current;
+    const chart = chartRef.current;
+    if (!series || !chart) return;
 
-    // Note: lightweight-charts doesn't natively support diagonal lines
-    // So we'll use markers for trendlines and price lines for rectangles/horizontals
-    
+    // CLEAN PREVIOUS OVERLAYS
+    if (priceLinesRef.current.length) {
+      try {
+        priceLinesRef.current.forEach((line) => {
+          try { series.removePriceLine(line); } catch {}
+        });
+      } finally {
+        priceLinesRef.current = [];
+      }
+    }
+    if (trendlineSeriesRef.current.size) {
+      trendlineSeriesRef.current.forEach((s) => {
+        try { chart.removeSeries(s); } catch {}
+      });
+      trendlineSeriesRef.current.clear();
+    }
+
+    // Build new overlays from current drawings
     const markers: any[] = [];
 
-    drawings.forEach(drawing => {
+    drawings.forEach((drawing) => {
       if (drawing.type === 'horizontal') {
-        candlestickSeriesRef.current?.createPriceLine({
+        const line = series.createPriceLine({
           price: drawing.points[0].price,
           color: '#FCD535',
           lineWidth: 2,
@@ -385,33 +405,12 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
           axisLabelVisible: true,
           title: 'Support/Resistance',
         });
-      } else if (drawing.type === 'trendline' && drawing.points.length === 2) {
-        // Determine color based on trend direction
-        const isRising = drawing.points[1].price > drawing.points[0].price;
-        const color = isRising ? '#0ECB81' : '#F6465D';
-        const shape = isRising ? 'arrowUp' : 'arrowDown';
-        
-        // Add markers for start and end points
-        markers.push({
-          time: drawing.points[0].time as UTCTimestamp,
-          position: 'inBar' as 'inBar',
-          color: color,
-          shape: 'circle' as 'circle',
-          text: 'Start',
-        });
-        markers.push({
-          time: drawing.points[1].time as UTCTimestamp,
-          position: 'inBar' as 'inBar',
-          color: color,
-          shape: shape,
-          text: `${isRising ? 'Up' : 'Down'} Trend`,
-        });
+        priceLinesRef.current.push(line);
       } else if (drawing.type === 'rectangle' && drawing.points.length === 2) {
-        // Create two horizontal lines for rectangle
         const highPrice = Math.max(drawing.points[0].price, drawing.points[1].price);
         const lowPrice = Math.min(drawing.points[0].price, drawing.points[1].price);
-        
-        candlestickSeriesRef.current?.createPriceLine({
+
+        const top = series.createPriceLine({
           price: highPrice,
           color: '#8B5CF6',
           lineWidth: 2,
@@ -419,7 +418,7 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
           axisLabelVisible: true,
           title: 'Zone Top',
         });
-        candlestickSeriesRef.current?.createPriceLine({
+        const bottom = series.createPriceLine({
           price: lowPrice,
           color: '#8B5CF6',
           lineWidth: 2,
@@ -427,21 +426,60 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
           axisLabelVisible: true,
           title: 'Zone Bottom',
         });
+        priceLinesRef.current.push(top, bottom);
+      } else if (drawing.type === 'trendline' && drawing.points.length === 2) {
+        const isRising = drawing.points[1].price > drawing.points[0].price;
+        const color = isRising ? '#0ECB81' : '#F6465D';
+
+        const tl = chart.addSeries(LineSeries, {
+          color,
+          lineWidth: 2,
+          lastValueVisible: false,
+          priceLineVisible: false,
+          crosshairMarkerVisible: false,
+        });
+        tl.setData([
+          { time: drawing.points[0].time as UTCTimestamp, value: drawing.points[0].price },
+          { time: drawing.points[1].time as UTCTimestamp, value: drawing.points[1].price },
+        ]);
+        trendlineSeriesRef.current.set(drawing.id, tl);
+
+        markers.push({
+          time: drawing.points[0].time as UTCTimestamp,
+          position: 'inBar' as 'inBar',
+          color,
+          shape: 'circle' as 'circle',
+          text: 'Start',
+        });
+        markers.push({
+          time: drawing.points[1].time as UTCTimestamp,
+          position: 'inBar' as 'inBar',
+          color,
+          shape: (isRising ? 'arrowUp' : 'arrowDown') as 'arrowUp' | 'arrowDown',
+          text: isRising ? 'Up Trend' : 'Down Trend',
+        });
+      } else if (drawing.type === 'text') {
+        // Use marker to render text note
+        markers.push({
+          time: drawing.points[0].time as UTCTimestamp,
+          position: 'aboveBar' as 'aboveBar',
+          color: '#FCD535',
+          shape: 'square' as 'square',
+          text: drawing.text || 'Note',
+        });
       }
     });
 
-    // Combine with existing trade markers
-    if (markers.length > 0 || trades.length > 0) {
-      const tradeMarkers = trades.map(trade => ({
-        time: trade.timestamp as UTCTimestamp,
-        position: (trade.type === 'buy' ? 'belowBar' : 'aboveBar') as 'belowBar' | 'aboveBar',
-        color: trade.type === 'buy' ? '#8b5cf6' : '#F6465D',
-        shape: (trade.type === 'buy' ? 'arrowUp' : 'arrowDown') as 'arrowUp' | 'arrowDown',
-        text: `${trade.type.toUpperCase()} ${trade.amount.toFixed(4)} @ $${trade.price.toFixed(2)}`,
-      }));
-      
-      candlestickSeriesRef.current.setMarkers([...tradeMarkers, ...markers]);
-    }
+    // Combine with trade markers
+    const tradeMarkers = trades.map((trade) => ({
+      time: trade.timestamp as UTCTimestamp,
+      position: (trade.type === 'buy' ? 'belowBar' : 'aboveBar') as 'belowBar' | 'aboveBar',
+      color: trade.type === 'buy' ? '#8B5CF6' : '#F6465D',
+      shape: (trade.type === 'buy' ? 'arrowUp' : 'arrowDown') as 'arrowUp' | 'arrowDown',
+      text: `${trade.type.toUpperCase()} ${trade.amount.toFixed(4)} @ $${trade.price.toFixed(2)}`,
+    }));
+
+    series.setMarkers([...tradeMarkers, ...markers]);
   }, [drawings, trades]);
 
   // Handle timeframe change
