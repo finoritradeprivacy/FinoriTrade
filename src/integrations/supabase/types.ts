@@ -259,6 +259,39 @@ export type Database = {
           },
         ]
       }
+      price_history: {
+        Row: {
+          asset_id: string
+          close: number
+          created_at: string
+          high: number
+          id: string
+          low: number
+          open: number
+          time: number
+        }
+        Insert: {
+          asset_id: string
+          close: number
+          created_at?: string
+          high: number
+          id?: string
+          low: number
+          open: number
+          time: number
+        }
+        Update: {
+          asset_id?: string
+          close?: number
+          created_at?: string
+          high?: number
+          id?: string
+          low?: number
+          open?: number
+          time?: number
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string

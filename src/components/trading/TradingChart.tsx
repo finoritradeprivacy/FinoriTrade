@@ -96,9 +96,10 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
       rightPriceScale: {
         borderColor: 'rgba(42, 46, 57, 0.5)',
         borderVisible: true,
+        autoScale: true,
         scaleMargins: {
-          top: 0.1,
-          bottom: 0.1,
+          top: 0.15,
+          bottom: 0.15,
         },
       },
       timeScale: {
@@ -140,33 +141,95 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
   }, []);
 
   // Generate historical candlestick data
-  const generateHistoricalData = () => {
+  const generateHistoricalData = async () => {
     if (!candlestickSeriesRef.current || !asset) return;
 
-    const data: CandlestickData[] = [];
-    const basePrice = asset.current_price;
-    const now = Math.floor(Date.now() / 1000);
     const timeframeSeconds = getTimeframeSeconds(timeframe);
+    const now = Math.floor(Date.now() / 1000);
+    const startTime = now - 100 * timeframeSeconds;
 
-    // Generate exactly 100 candles with unique timestamps
-    for (let i = 100; i > 0; i--) {
-      const time = (now - i * timeframeSeconds) as UTCTimestamp;
-      const open = basePrice * (1 + (Math.random() - 0.5) * 0.02);
-      const close = open * (1 + (Math.random() - 0.5) * 0.015);
-      const high = Math.max(open, close) * (1 + Math.random() * 0.01);
-      const low = Math.min(open, close) * (1 - Math.random() * 0.01);
+    try {
+      // Try to load existing data from database
+      const { data: existingData, error } = await supabase
+        .from('price_history')
+        .select('*')
+        .eq('asset_id', asset.id)
+        .gte('time', startTime)
+        .order('time', { ascending: true });
 
-      data.push({
-        time,
-        open,
-        high,
-        low,
-        close,
-      });
+      if (error) throw error;
+
+      if (existingData && existingData.length > 0) {
+        // Use existing data from database
+        const chartData: CandlestickData[] = existingData.map(d => ({
+          time: d.time as UTCTimestamp,
+          open: Number(d.open),
+          high: Number(d.high),
+          low: Number(d.low),
+          close: Number(d.close),
+        }));
+        candlestickSeriesRef.current.setData(chartData);
+        console.log(`Loaded ${chartData.length} candles from database`);
+      } else {
+        // Generate new data
+        const data: CandlestickData[] = [];
+        const basePrice = asset.current_price;
+
+        // Generate exactly 100 candles with unique timestamps
+        for (let i = 100; i > 0; i--) {
+          const time = (now - i * timeframeSeconds) as UTCTimestamp;
+          const open = basePrice * (1 + (Math.random() - 0.5) * 0.02);
+          const close = open * (1 + (Math.random() - 0.5) * 0.015);
+          const high = Math.max(open, close) * (1 + Math.random() * 0.01);
+          const low = Math.min(open, close) * (1 - Math.random() * 0.01);
+
+          data.push({
+            time,
+            open,
+            high,
+            low,
+            close,
+          });
+        }
+
+        // Set data on chart
+        candlestickSeriesRef.current.setData(data);
+
+        // Save to database
+        const dbData = data.map(d => ({
+          asset_id: asset.id,
+          time: Number(d.time),
+          open: d.open,
+          high: d.high,
+          low: d.low,
+          close: d.close,
+        }));
+
+        const { error: insertError } = await supabase
+          .from('price_history')
+          .insert(dbData);
+
+        if (insertError) {
+          console.error('Error saving price history:', insertError);
+        } else {
+          console.log(`Generated and saved ${data.length} new candles`);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading price history:', error);
+      // Fallback to generating data without saving
+      const data: CandlestickData[] = [];
+      const basePrice = asset.current_price;
+      for (let i = 100; i > 0; i--) {
+        const time = (now - i * timeframeSeconds) as UTCTimestamp;
+        const open = basePrice * (1 + (Math.random() - 0.5) * 0.02);
+        const close = open * (1 + (Math.random() - 0.5) * 0.015);
+        const high = Math.max(open, close) * (1 + Math.random() * 0.01);
+        const low = Math.min(open, close) * (1 - Math.random() * 0.01);
+        data.push({ time, open, high, low, close });
+      }
+      candlestickSeriesRef.current.setData(data);
     }
-
-    // Clear existing data and set new data
-    candlestickSeriesRef.current.setData(data);
   };
 
   // Get timeframe in seconds
@@ -210,8 +273,8 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
   }, [asset]);
 
   // Update last candle with new price
-  const updateLastCandle = (newPrice: number) => {
-    if (!candlestickSeriesRef.current) return;
+  const updateLastCandle = async (newPrice: number) => {
+    if (!candlestickSeriesRef.current || !asset) return;
 
     // Get current timeframe interval
     const timeframeSeconds = getTimeframeSeconds(timeframe);
@@ -231,6 +294,20 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
       };
       candlestickSeriesRef.current.update(updatedCandle);
       setLastCandle(updatedCandle);
+
+      // Update in database
+      await supabase
+        .from('price_history')
+        .upsert({
+          asset_id: asset.id,
+          time: Number(currentCandleTime),
+          open: updatedCandle.open,
+          high: updatedCandle.high,
+          low: updatedCandle.low,
+          close: updatedCandle.close,
+        }, {
+          onConflict: 'asset_id,time'
+        });
     } else {
       // New candle period
       const newCandle: CandlestickData = {
@@ -242,6 +319,18 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
       };
       candlestickSeriesRef.current.update(newCandle);
       setLastCandle(newCandle);
+
+      // Insert new candle in database
+      await supabase
+        .from('price_history')
+        .insert({
+          asset_id: asset.id,
+          time: Number(currentCandleTime),
+          open: newCandle.open,
+          high: newCandle.high,
+          low: newCandle.low,
+          close: newCandle.close,
+        });
     }
   };
 
