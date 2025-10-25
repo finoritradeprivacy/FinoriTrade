@@ -429,7 +429,14 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
         });
         priceLinesRef.current.push(top, bottom);
       } else if (drawing.type === 'trendline' && drawing.points.length === 2) {
-        const isRising = drawing.points[1].price > drawing.points[0].price;
+        // Skip if both points have the same timestamp
+        if (drawing.points[0].time === drawing.points[1].time) {
+          return;
+        }
+
+        // Ensure points are sorted by time (ascending)
+        const sortedPoints = [...drawing.points].sort((a, b) => a.time - b.time);
+        const isRising = sortedPoints[1].price > sortedPoints[0].price;
         const color = isRising ? '#0ECB81' : '#F6465D';
 
         const tl = chart.addSeries(LineSeries, {
@@ -440,8 +447,8 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
           crosshairMarkerVisible: false,
         });
         tl.setData([
-          { time: drawing.points[0].time as UTCTimestamp, value: drawing.points[0].price },
-          { time: drawing.points[1].time as UTCTimestamp, value: drawing.points[1].price },
+          { time: sortedPoints[0].time as UTCTimestamp, value: sortedPoints[0].price },
+          { time: sortedPoints[1].time as UTCTimestamp, value: sortedPoints[1].price },
         ]);
         trendlineSeriesRef.current.set(drawing.id, tl);
 
