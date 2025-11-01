@@ -8,6 +8,24 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import { z } from "zod";
+
+const orderSchema = z.object({
+  quantity: z.number()
+    .positive({ message: "Quantity must be positive" })
+    .max(1000000, { message: "Quantity exceeds maximum limit" })
+    .finite({ message: "Quantity must be a valid number" }),
+  price: z.number()
+    .positive({ message: "Price must be positive" })
+    .max(1000000, { message: "Price exceeds maximum limit" })
+    .finite({ message: "Price must be a valid number" })
+    .optional(),
+  stopPrice: z.number()
+    .positive({ message: "Stop price must be positive" })
+    .max(1000000, { message: "Stop price exceeds maximum limit" })
+    .finite({ message: "Stop price must be a valid number" })
+    .optional()
+});
 
 interface OrderFormProps {
   asset: any;
@@ -26,41 +44,25 @@ const OrderForm = ({ asset }: OrderFormProps) => {
   const handleSubmitOrder = async () => {
     if (!user || !asset) return;
 
-    if (!quantity || Number(quantity) <= 0) {
-      toast.error("Please enter a valid quantity");
-      return;
-    }
-
-    if ((orderType === "limit" || orderType === "stop") && (!price || Number(price) <= 0)) {
-      toast.error("Please enter a valid price");
-      return;
-    }
-
-    if (orderType === "stop" && (!stopPrice || Number(stopPrice) <= 0)) {
-      toast.error("Please enter a valid stop price");
-      return;
-    }
-
     setLoading(true);
 
     try {
-      const orderPrice = orderType === "market" ? Number(asset.current_price) : Number(price);
-      const orderQuantity = Number(quantity);
-      const totalCost = orderPrice * orderQuantity;
+      // Validate inputs with Zod schema
+      const validationResult = orderSchema.safeParse({
+        quantity: Number(quantity),
+        price: (orderType === "limit" || orderType === "stop") ? Number(price) : undefined,
+        stopPrice: orderType === "stop" ? Number(stopPrice) : undefined
+      });
 
-      if (side === "buy") {
-        const { data: balanceData } = await supabase
-          .from("user_balances")
-          .select("usdt_balance")
-          .eq("user_id", user.id)
-          .single();
-
-        if (!balanceData || Number(balanceData.usdt_balance) < totalCost) {
-          toast.error("Insufficient balance");
-          setLoading(false);
-          return;
-        }
+      if (!validationResult.success) {
+        toast.error(validationResult.error.errors[0].message);
+        setLoading(false);
+        return;
       }
+
+      const orderPrice = orderType === "market" ? Number(asset.current_price) : Number(price);
+      const orderQuantity = validationResult.data.quantity;
+      const totalCost = orderPrice * orderQuantity;
 
       const { error: orderError } = await supabase
         .from("orders")
@@ -82,55 +84,23 @@ const OrderForm = ({ asset }: OrderFormProps) => {
       if (orderError) throw orderError;
 
       if (orderType === "market") {
-        const balanceChange = side === "buy" ? -totalCost : totalCost;
-        
-        const { data: currentBalance } = await supabase
-          .from("user_balances")
-          .select("usdt_balance")
-          .eq("user_id", user.id)
-          .single();
+        // Use database function for atomic order processing
+        const { data: result, error: rpcError } = await supabase.rpc('process_market_order', {
+          p_user_id: user.id,
+          p_asset_id: asset.id,
+          p_side: side,
+          p_quantity: orderQuantity,
+          p_price: orderPrice
+        });
 
-        if (currentBalance) {
-          await supabase
-            .from("user_balances")
-            .update({ 
-              usdt_balance: Number(currentBalance.usdt_balance) + balanceChange 
-            })
-            .eq("user_id", user.id);
-        }
-
-        const { data: existingPortfolio } = await supabase
-          .from("portfolios")
-          .select("*")
-          .eq("user_id", user.id)
-          .eq("asset_id", asset.id)
-          .single();
-
-        if (existingPortfolio) {
-          const newQuantity = side === "buy" 
-            ? Number(existingPortfolio.quantity) + orderQuantity
-            : Number(existingPortfolio.quantity) - orderQuantity;
-
-          await supabase
-            .from("portfolios")
-            .update({
-              quantity: newQuantity,
-              average_buy_price: orderPrice,
-              total_invested: newQuantity * orderPrice,
-              updated_at: new Date().toISOString()
-            })
-            .eq("user_id", user.id)
-            .eq("asset_id", asset.id);
-        } else if (side === "buy") {
-          await supabase
-            .from("portfolios")
-            .insert({
-              user_id: user.id,
-              asset_id: asset.id,
-              quantity: orderQuantity,
-              average_buy_price: orderPrice,
-              total_invested: totalCost,
-            });
+        if (rpcError) {
+          if (rpcError.message.includes('Insufficient balance')) {
+            toast.error("Insufficient balance");
+          } else {
+            throw rpcError;
+          }
+          setLoading(false);
+          return;
         }
 
         toast.success(`${side === "buy" ? "Bought" : "Sold"} ${orderQuantity} ${asset.symbol}`);
