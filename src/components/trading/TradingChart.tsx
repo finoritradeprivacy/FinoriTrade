@@ -58,6 +58,7 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
   const [isInitialized, setIsInitialized] = useState(false);
   const [lastCandle, setLastCandle] = useState<CandlestickData | null>(null);
   const [drawingInProgress, setDrawingInProgress] = useState<{ type: DrawingTool; points: Array<{ time: number; price: number }> } | null>(null);
+  const [isLoadingData, setIsLoadingData] = useState(false);
 
   // Initialize chart
   useEffect(() => {
@@ -144,6 +145,8 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
   const generateHistoricalData = async () => {
     if (!candlestickSeriesRef.current || !asset) return;
 
+    setIsLoadingData(true);
+
     const timeframeSeconds = getTimeframeSeconds(timeframe);
     const now = Math.floor(Date.now() / 1000);
     const startTime = now - 100 * timeframeSeconds;
@@ -169,19 +172,36 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
           close: Number(d.close),
         }));
         candlestickSeriesRef.current.setData(chartData);
+        setLastCandle(chartData[chartData.length - 1]);
         console.log(`Loaded ${chartData.length} candles from database`);
       } else {
+        // Get the last known price from database to continue from
+        const { data: lastHistoricalCandle } = await supabase
+          .from('price_history')
+          .select('close')
+          .eq('asset_id', asset.id)
+          .order('time', { ascending: false })
+          .limit(1)
+          .single();
+
+        // Use last known price or current asset price
+        const basePrice = lastHistoricalCandle?.close 
+          ? Number(lastHistoricalCandle.close) 
+          : asset.current_price;
+
         // Generate new data
         const data: CandlestickData[] = [];
-        const basePrice = asset.current_price;
+        let lastClose = basePrice;
 
-        // Generate exactly 100 candles with unique timestamps
+        // Generate exactly 100 candles with unique timestamps, continuing from last price
         for (let i = 100; i > 0; i--) {
           const time = (now - i * timeframeSeconds) as UTCTimestamp;
-          const open = basePrice * (1 + (Math.random() - 0.5) * 0.02);
-          const close = open * (1 + (Math.random() - 0.5) * 0.015);
-          const high = Math.max(open, close) * (1 + Math.random() * 0.01);
-          const low = Math.min(open, close) * (1 - Math.random() * 0.01);
+          // Each candle continues from the previous close
+          const open = lastClose;
+          const priceChange = (Math.random() - 0.5) * 0.015;
+          const close = open * (1 + priceChange);
+          const high = Math.max(open, close) * (1 + Math.random() * 0.005);
+          const low = Math.min(open, close) * (1 - Math.random() * 0.005);
 
           data.push({
             time,
@@ -190,10 +210,14 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
             low,
             close,
           });
+          
+          // Update lastClose for next candle
+          lastClose = close;
         }
 
         // Set data on chart
         candlestickSeriesRef.current.setData(data);
+        setLastCandle(data[data.length - 1]);
 
         // Save to database
         const dbData = data.map(d => ({
@@ -219,16 +243,21 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
       console.error('Error loading price history:', error);
       // Fallback to generating data without saving
       const data: CandlestickData[] = [];
-      const basePrice = asset.current_price;
+      let lastClose = asset.current_price;
       for (let i = 100; i > 0; i--) {
         const time = (now - i * timeframeSeconds) as UTCTimestamp;
-        const open = basePrice * (1 + (Math.random() - 0.5) * 0.02);
-        const close = open * (1 + (Math.random() - 0.5) * 0.015);
-        const high = Math.max(open, close) * (1 + Math.random() * 0.01);
-        const low = Math.min(open, close) * (1 - Math.random() * 0.01);
+        const open = lastClose;
+        const priceChange = (Math.random() - 0.5) * 0.015;
+        const close = open * (1 + priceChange);
+        const high = Math.max(open, close) * (1 + Math.random() * 0.005);
+        const low = Math.min(open, close) * (1 - Math.random() * 0.005);
         data.push({ time, open, high, low, close });
+        lastClose = close;
       }
       candlestickSeriesRef.current.setData(data);
+      setLastCandle(data[data.length - 1]);
+    } finally {
+      setIsLoadingData(false);
     }
   };
 
@@ -593,12 +622,12 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
     toast.success(`Timeframe changed to ${tf}`);
   };
 
-  // Generate historical data only once on init and when timeframe changes
+  // Generate historical data when asset changes, timeframe changes, or chart initializes
   useEffect(() => {
-    if (isInitialized) {
+    if (isInitialized && asset) {
       generateHistoricalData();
     }
-  }, [timeframe, isInitialized]);
+  }, [timeframe, isInitialized, asset?.id]);
 
   // Remove specific drawing
   const removeDrawing = (id: string) => {
@@ -737,7 +766,17 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
       </div>
 
       {/* Chart container */}
-      <div ref={chartContainerRef} className="w-full" />
+      <div className="relative">
+        <div ref={chartContainerRef} className="w-full" />
+        {isLoadingData && (
+          <div className="absolute inset-0 bg-[#0B0E11]/80 flex items-center justify-center">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-2"></div>
+              <p className="text-sm text-muted-foreground">Načítám data...</p>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Info footer */}
       <div className="px-4 py-3 text-sm text-[#848E9C] border-t border-[#2A2E39]">
