@@ -193,9 +193,12 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
         const data: CandlestickData[] = [];
         let lastClose = basePrice;
 
+        // Calculate current candle time aligned to timeframe
+        const currentCandleTime = Math.floor(now / timeframeSeconds) * timeframeSeconds;
+
         // Generate exactly 100 candles with unique timestamps, continuing from last price
         for (let i = 100; i > 0; i--) {
-          const time = (now - i * timeframeSeconds) as UTCTimestamp;
+          const time = (currentCandleTime - i * timeframeSeconds) as UTCTimestamp;
           // Each candle continues from the previous close
           const open = lastClose;
           const priceChange = (Math.random() - 0.5) * 0.015;
@@ -244,8 +247,12 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
       // Fallback to generating data without saving
       const data: CandlestickData[] = [];
       let lastClose = asset.current_price;
+      
+      // Calculate current candle time aligned to timeframe
+      const currentCandleTime = Math.floor(now / timeframeSeconds) * timeframeSeconds;
+      
       for (let i = 100; i > 0; i--) {
-        const time = (now - i * timeframeSeconds) as UTCTimestamp;
+        const time = (currentCandleTime - i * timeframeSeconds) as UTCTimestamp;
         const open = lastClose;
         const priceChange = (Math.random() - 0.5) * 0.015;
         const close = open * (1 + priceChange);
