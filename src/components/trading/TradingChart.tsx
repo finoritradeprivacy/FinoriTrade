@@ -315,6 +315,17 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
     // Get current timeframe interval
     const timeframeSeconds = getTimeframeSeconds(timeframe);
     const now = Math.floor(Date.now() / 1000);
+
+    // Sanity check and glitch filter
+    const prevClose = lastCandle?.close ?? Number(asset.current_price);
+    if (!Number.isFinite(newPrice) || newPrice <= 0) {
+      console.warn('Ignoring invalid price update', newPrice);
+      return;
+    }
+    const MAX_JUMP = 0.2; // 20% max jump per tick to avoid spikes from bad payloads
+    const price = prevClose && Math.abs(newPrice - prevClose) / prevClose > MAX_JUMP
+      ? prevClose
+      : newPrice;
     
     // Calculate the start time of the current candle
     const currentCandleTime = Math.floor(now / timeframeSeconds) * timeframeSeconds as UTCTimestamp;
@@ -324,9 +335,9 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
       const updatedCandle: CandlestickData = {
         time: currentCandleTime,
         open: lastCandle.open,
-        high: Math.max(lastCandle.high, newPrice),
-        low: Math.min(lastCandle.low, newPrice),
-        close: newPrice,
+        high: Math.max(lastCandle.high, price),
+        low: Math.min(lastCandle.low, price),
+        close: price,
       };
       candlestickSeriesRef.current.update(updatedCandle);
       setLastCandle(updatedCandle);
@@ -348,10 +359,10 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
       // New candle period
       const newCandle: CandlestickData = {
         time: currentCandleTime,
-        open: newPrice,
-        high: newPrice,
-        low: newPrice,
-        close: newPrice,
+        open: price,
+        high: price,
+        low: price,
+        close: price,
       };
       candlestickSeriesRef.current.update(newCandle);
       setLastCandle(newCandle);
