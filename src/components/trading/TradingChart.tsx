@@ -163,7 +163,7 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
       if (error) throw error;
 
       if (existingData && existingData.length > 0) {
-        // Use existing data from database and softly bridge to current price to avoid first-candle spike
+        // Use existing data from database and fill any missing candles flatly to current interval
         const chartData: CandlestickData[] = existingData.map(d => ({
           time: d.time as UTCTimestamp,
           open: Number(d.open),
@@ -171,34 +171,24 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
           low: Number(d.low),
           close: Number(d.close),
         }));
-        candlestickSeriesRef.current.setData(chartData);
-
-        // Bridge gap from last historical close to current price over a few candles
+        
         const last = chartData[chartData.length - 1];
         const timeframeSeconds = getTimeframeSeconds(timeframe);
         const currentCandleTime = Math.floor(now / timeframeSeconds) * timeframeSeconds as UTCTimestamp;
-        const targetPrice = Number(asset.current_price);
 
         if (last && (last.time as number) < currentCandleTime) {
-          const gapCandles = Math.max(1, Math.floor(((currentCandleTime as number) - (last.time as number)) / timeframeSeconds));
-          const steps = Math.min(5, gapCandles);
-          let prevClose = Number(last.close);
-          const increment = (targetPrice - prevClose) / steps;
           const fill: CandlestickData[] = [];
-          for (let i = 1; i <= steps; i++) {
-            const t = ((last.time as number) + i * timeframeSeconds) as UTCTimestamp;
-            const open = prevClose;
-            const close = i === steps ? targetPrice : open + increment;
-            const high = Math.max(open, close);
-            const low = Math.min(open, close);
-            fill.push({ time: t, open, high, low, close });
-            prevClose = close;
+          let prevClose = Number(last.close);
+          for (let t = (last.time as number) + timeframeSeconds; t <= (currentCandleTime as number); t += timeframeSeconds) {
+            const time = t as UTCTimestamp;
+            fill.push({ time, open: prevClose, high: prevClose, low: prevClose, close: prevClose });
           }
           const combined = [...chartData, ...fill];
           candlestickSeriesRef.current.setData(combined);
           setLastCandle(combined[combined.length - 1]);
-          console.log(`Loaded ${chartData.length} candles + bridged ${fill.length} to current price`);
+          console.log(`Loaded ${chartData.length} candles + filled ${fill.length} flat candles`);
         } else {
+          candlestickSeriesRef.current.setData(chartData);
           setLastCandle(chartData[chartData.length - 1]);
           console.log(`Loaded ${chartData.length} candles from database`);
         }
