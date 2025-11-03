@@ -165,7 +165,7 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
       if (existingData && existingData.length > 0) {
         // Use existing data from database and fill any missing candles flatly to current interval
         const chartData: CandlestickData[] = existingData.map(d => ({
-          time: d.time as UTCTimestamp,
+          time: Number(d.time) as UTCTimestamp,
           open: Number(d.open),
           high: Number(d.high),
           low: Number(d.low),
