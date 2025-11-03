@@ -163,7 +163,6 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
       if (error) throw error;
 
       if (existingData && existingData.length > 0) {
-        // Use existing data from database and fill any missing candles flatly to current interval
         const chartData: CandlestickData[] = existingData.map(d => ({
           time: Number(d.time) as UTCTimestamp,
           open: Number(d.open),
@@ -171,97 +170,20 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
           low: Number(d.low),
           close: Number(d.close),
         }));
-        
-        const last = chartData[chartData.length - 1];
-        const timeframeSeconds = getTimeframeSeconds(timeframe);
-        const currentCandleTime = Math.floor(now / timeframeSeconds) * timeframeSeconds as UTCTimestamp;
-
-        if (last && (last.time as number) < currentCandleTime) {
-          const fill: CandlestickData[] = [];
-          let prevClose = Number(last.close);
-          for (let t = (last.time as number) + timeframeSeconds; t <= (currentCandleTime as number); t += timeframeSeconds) {
-            const time = t as UTCTimestamp;
-            fill.push({ time, open: prevClose, high: prevClose, low: prevClose, close: prevClose });
-          }
-          const combined = [...chartData, ...fill];
-          candlestickSeriesRef.current.setData(combined);
-          setLastCandle(combined[combined.length - 1]);
-          console.log(`Loaded ${chartData.length} candles + filled ${fill.length} flat candles`);
-        } else {
-          candlestickSeriesRef.current.setData(chartData);
-          setLastCandle(chartData[chartData.length - 1]);
-          console.log(`Loaded ${chartData.length} candles from database`);
-        }
+        candlestickSeriesRef.current.setData(chartData);
+        setLastCandle(chartData[chartData.length - 1]);
+        console.log(`Loaded ${chartData.length} candles from database`);
       } else {
-        // Get the last known price from database to continue from
-        const { data: lastHistoricalCandle } = await supabase
-          .from('price_history')
-          .select('close')
-          .eq('asset_id', asset.id)
-          .order('time', { ascending: false })
-          .limit(1)
-          .single();
-
-        // Use last known price or current asset price
-        const basePrice = lastHistoricalCandle?.close 
-          ? Number(lastHistoricalCandle.close) 
-          : asset.current_price;
-
-        // Generate new data
-        const data: CandlestickData[] = [];
-        let lastClose = basePrice;
-
-        // Calculate current candle time aligned to timeframe
-        const currentCandleTime = Math.floor(now / timeframeSeconds) * timeframeSeconds;
-
-        // Generate exactly 100 candles with unique timestamps, continuing from last price
-        for (let i = 100; i > 0; i--) {
-          const time = (currentCandleTime - i * timeframeSeconds) as UTCTimestamp;
-          // Each candle continues from the previous close
-          const open = lastClose;
-          const priceChange = (Math.random() - 0.5) * 0.015;
-          const close = open * (1 + priceChange);
-          const high = Math.max(open, close) * (1 + Math.random() * 0.005);
-          const low = Math.min(open, close) * (1 - Math.random() * 0.005);
-
-          data.push({
-            time,
-            open,
-            high,
-            low,
-            close,
-          });
-          
-          // Update lastClose for next candle
-          lastClose = close;
-        }
-
-        // Set data on chart
-        candlestickSeriesRef.current.setData(data);
-        setLastCandle(data[data.length - 1]);
-
+        // No pre-generated history: start empty and let realtime build from now
+        candlestickSeriesRef.current.setData([]);
+        setLastCandle(null);
+        console.log('No history yet — will build from now');
       }
     } catch (error) {
       console.error('Error loading price history:', error);
-      // Fallback to generating data without saving
-      const data: CandlestickData[] = [];
-      let lastClose = asset.current_price;
-      
-      // Calculate current candle time aligned to timeframe
-      const currentCandleTime = Math.floor(now / timeframeSeconds) * timeframeSeconds;
-      
-      for (let i = 100; i > 0; i--) {
-        const time = (currentCandleTime - i * timeframeSeconds) as UTCTimestamp;
-        const open = lastClose;
-        const priceChange = (Math.random() - 0.5) * 0.015;
-        const close = open * (1 + priceChange);
-        const high = Math.max(open, close) * (1 + Math.random() * 0.005);
-        const low = Math.min(open, close) * (1 - Math.random() * 0.005);
-        data.push({ time, open, high, low, close });
-        lastClose = close;
-      }
-      candlestickSeriesRef.current.setData(data);
-      setLastCandle(data[data.length - 1]);
+      // No fallback history generation; start empty
+      candlestickSeriesRef.current.setData([]);
+      setLastCandle(null);
     } finally {
       setIsLoadingData(false);
     }

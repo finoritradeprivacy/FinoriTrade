@@ -101,6 +101,49 @@ Deno.serve(async (req) => {
       const current24hChange = Number(asset.price_change_24h) || 0;
       const new24hChange = current24hChange * 0.95 + priceChange * 0.05;
 
+      // Maintain 1m OHLC candle in price_history starting now (no backfill)
+      const candleTime = Math.floor(Date.now() / 1000 / 60) * 60;
+
+      const { data: existingCandle, error: selectCandleError } = await supabase
+        .from('price_history')
+        .select('id, open, high, low, close')
+        .eq('asset_id', asset.id)
+        .eq('time', candleTime)
+        .maybeSingle();
+
+      if (selectCandleError && selectCandleError.code !== 'PGRST116') {
+        console.error(`Error selecting candle for ${asset.symbol}:`, selectCandleError);
+      }
+
+      if (existingCandle) {
+        const { error: candleUpdateError } = await supabase
+          .from('price_history')
+          .update({
+            high: Math.max(Number(existingCandle.high), newPrice),
+            low: Math.min(Number(existingCandle.low), newPrice),
+            close: newPrice,
+          })
+          .eq('id', existingCandle.id);
+        if (candleUpdateError) {
+          console.error(`Error updating candle for ${asset.symbol}:`, candleUpdateError);
+        }
+      } else {
+        const open = currentPrice;
+        const { error: candleInsertError } = await supabase
+          .from('price_history')
+          .insert({
+            asset_id: asset.id,
+            time: candleTime,
+            open,
+            high: Math.max(open, newPrice),
+            low: Math.min(open, newPrice),
+            close: newPrice,
+          });
+        if (candleInsertError) {
+          console.error(`Error inserting candle for ${asset.symbol}:`, candleInsertError);
+        }
+      }
+
       // Update the asset
       const { error: updateError } = await supabase
         .from('assets')
