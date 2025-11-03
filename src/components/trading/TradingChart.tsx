@@ -163,7 +163,7 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
       if (error) throw error;
 
       if (existingData && existingData.length > 0) {
-        // Use existing data from database
+        // Use existing data from database and softly bridge to current price to avoid first-candle spike
         const chartData: CandlestickData[] = existingData.map(d => ({
           time: d.time as UTCTimestamp,
           open: Number(d.open),
@@ -172,8 +172,36 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
           close: Number(d.close),
         }));
         candlestickSeriesRef.current.setData(chartData);
-        setLastCandle(chartData[chartData.length - 1]);
-        console.log(`Loaded ${chartData.length} candles from database`);
+
+        // Bridge gap from last historical close to current price over a few candles
+        const last = chartData[chartData.length - 1];
+        const timeframeSeconds = getTimeframeSeconds(timeframe);
+        const currentCandleTime = Math.floor(now / timeframeSeconds) * timeframeSeconds as UTCTimestamp;
+        const targetPrice = Number(asset.current_price);
+
+        if (last && (last.time as number) < currentCandleTime) {
+          const gapCandles = Math.max(1, Math.floor(((currentCandleTime as number) - (last.time as number)) / timeframeSeconds));
+          const steps = Math.min(5, gapCandles);
+          let prevClose = Number(last.close);
+          const increment = (targetPrice - prevClose) / steps;
+          const fill: CandlestickData[] = [];
+          for (let i = 1; i <= steps; i++) {
+            const t = ((last.time as number) + i * timeframeSeconds) as UTCTimestamp;
+            const open = prevClose;
+            const close = i === steps ? targetPrice : open + increment;
+            const high = Math.max(open, close);
+            const low = Math.min(open, close);
+            fill.push({ time: t, open, high, low, close });
+            prevClose = close;
+          }
+          const combined = [...chartData, ...fill];
+          candlestickSeriesRef.current.setData(combined);
+          setLastCandle(combined[combined.length - 1]);
+          console.log(`Loaded ${chartData.length} candles + bridged ${fill.length} to current price`);
+        } else {
+          setLastCandle(chartData[chartData.length - 1]);
+          console.log(`Loaded ${chartData.length} candles from database`);
+        }
       } else {
         // Get the last known price from database to continue from
         const { data: lastHistoricalCandle } = await supabase
@@ -222,25 +250,6 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
         candlestickSeriesRef.current.setData(data);
         setLastCandle(data[data.length - 1]);
 
-        // Save to database
-        const dbData = data.map(d => ({
-          asset_id: asset.id,
-          time: Number(d.time),
-          open: d.open,
-          high: d.high,
-          low: d.low,
-          close: d.close,
-        }));
-
-        const { error: insertError } = await supabase
-          .from('price_history')
-          .insert(dbData);
-
-        if (insertError) {
-          console.error('Error saving price history:', insertError);
-        } else {
-          console.log(`Generated and saved ${data.length} new candles`);
-        }
       }
     } catch (error) {
       console.error('Error loading price history:', error);
@@ -342,19 +351,7 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
       candlestickSeriesRef.current.update(updatedCandle);
       setLastCandle(updatedCandle);
 
-      // Update in database
-      await supabase
-        .from('price_history')
-        .upsert({
-          asset_id: asset.id,
-          time: Number(currentCandleTime),
-          open: updatedCandle.open,
-          high: updatedCandle.high,
-          low: updatedCandle.low,
-          close: updatedCandle.close,
-        }, {
-          onConflict: 'asset_id,time'
-        });
+      // Skipping client-side DB upsert to respect RLS; history is maintained server-side
     } else {
       // New candle period
       const newCandle: CandlestickData = {
@@ -367,17 +364,7 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
       candlestickSeriesRef.current.update(newCandle);
       setLastCandle(newCandle);
 
-      // Insert new candle in database
-      await supabase
-        .from('price_history')
-        .insert({
-          asset_id: asset.id,
-          time: Number(currentCandleTime),
-          open: newCandle.open,
-          high: newCandle.high,
-          low: newCandle.low,
-          close: newCandle.close,
-        });
+      // Skipping client-side DB insert to respect RLS; history is maintained server-side
     }
   };
 
