@@ -294,28 +294,37 @@ export type Database = {
       }
       profiles: {
         Row: {
+          avatar_url: string | null
           created_at: string
           email: string
           id: string
+          last_active_at: string | null
           nickname: string
+          played_time_seconds: number | null
           total_profit_loss: number | null
           total_trades: number | null
           win_rate: number | null
         }
         Insert: {
+          avatar_url?: string | null
           created_at?: string
           email: string
           id: string
+          last_active_at?: string | null
           nickname: string
+          played_time_seconds?: number | null
           total_profit_loss?: number | null
           total_trades?: number | null
           win_rate?: number | null
         }
         Update: {
+          avatar_url?: string | null
           created_at?: string
           email?: string
           id?: string
+          last_active_at?: string | null
           nickname?: string
+          played_time_seconds?: number | null
           total_profit_loss?: number | null
           total_trades?: number | null
           win_rate?: number | null
@@ -423,6 +432,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      calculate_total_xp_for_level: {
+        Args: { target_level: number }
+        Returns: number
+      }
+      calculate_xp_for_level: {
+        Args: { target_level: number }
+        Returns: number
+      }
       process_market_order: {
         Args: {
           p_asset_id: string

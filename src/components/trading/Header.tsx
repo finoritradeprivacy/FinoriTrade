@@ -3,9 +3,11 @@ import { Button } from "@/components/ui/button";
 import { LogOut, User } from "lucide-react";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useNavigate } from "react-router-dom";
 
 const Header = () => {
   const { user, signOut } = useAuth();
+  const navigate = useNavigate();
   const [balance, setBalance] = useState(0);
   const [profile, setProfile] = useState<any>(null);
 
@@ -67,10 +69,13 @@ const Header = () => {
             <h1 className="text-2xl font-bold text-gradient">FinoriTrade</h1>
             
             <div className="hidden md:flex items-center gap-4">
-              <div className="flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-lg border border-primary/20">
+              <button
+                onClick={() => navigate("/profile")}
+                className="flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-lg border border-primary/20 hover:bg-primary/20 transition-colors"
+              >
                 <User className="w-4 h-4 text-primary" />
                 <span className="text-sm font-medium">{profile?.nickname}</span>
-              </div>
+              </button>
               
               <div className="px-4 py-2 bg-secondary rounded-lg">
                 <p className="text-xs text-muted-foreground">Balance</p>
@@ -93,10 +98,13 @@ const Header = () => {
         </div>
 
         <div className="md:hidden mt-3 flex gap-2">
-          <div className="flex-1 px-3 py-2 bg-primary/10 rounded-lg border border-primary/20">
+          <button
+            onClick={() => navigate("/profile")}
+            className="flex-1 px-3 py-2 bg-primary/10 rounded-lg border border-primary/20 text-left hover:bg-primary/20 transition-colors"
+          >
             <p className="text-xs text-muted-foreground">User</p>
             <p className="text-sm font-medium">{profile?.nickname}</p>
-          </div>
+          </button>
           
           <div className="flex-1 px-3 py-2 bg-secondary rounded-lg">
             <p className="text-xs text-muted-foreground">Balance</p>
