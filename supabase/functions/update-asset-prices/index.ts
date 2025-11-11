@@ -52,27 +52,32 @@ Deno.serve(async (req) => {
     if (assetsError) throw assetsError;
 
     // Get news events that are ready to trigger (scheduled_for <= now and not yet processed)
-    const now = new Date().toISOString();
+    const nowISO = new Date().toISOString();
     const { data: triggeredNews, error: newsError } = await supabase
       .from('news_events')
       .select('*')
-      .lte('scheduled_for', now)
-      .is('scheduled_for', null); // Only get pending news (not yet processed)
+      .not('scheduled_for', 'is', null)
+      .lte('scheduled_for', nowISO);
 
     if (newsError) throw newsError;
 
     console.log(`Updating ${assets?.length || 0} assets, ${triggeredNews?.length || 0} triggered news`);
 
     // Process triggered news events
+    const processedNewsIds: string[] = [];
+    
     for (const news of triggeredNews || []) {
       if (news.asset_id) {
-        const impactStrength = Number(news.impact_strength);
-        const changePercent = news.impact_type === 'bullish' ? impactStrength : -impactStrength;
-        
         const asset = assets?.find(a => a.id === news.asset_id);
         if (asset) {
           const currentPrice = Number(asset.current_price);
+          const impactStrength = Number(news.impact_strength);
+          const changePercent = news.impact_type === 'bullish' ? impactStrength : -impactStrength;
           const newPrice = currentPrice * (1 + changePercent / 100);
+          
+          // Determine reversion duration (10-30 minutes)
+          const reversionMinutes = Math.floor(Math.random() * 21) + 10; // 10-30 minutes
+          const reversionCompleteAt = new Date(Date.now() + reversionMinutes * 60000);
           
           // Update asset price immediately
           await supabase
@@ -83,19 +88,74 @@ Deno.serve(async (req) => {
             })
             .eq('id', asset.id);
           
-          console.log(`Applied news to ${asset.symbol}: ${changePercent.toFixed(2)}%`);
+          // Mark news as triggered and store reversion data
+          await supabase
+            .from('news_events')
+            .update({ 
+              scheduled_for: null,
+              original_price: currentPrice,
+              reversion_complete_at: reversionCompleteAt.toISOString()
+            })
+            .eq('id', news.id);
+          
+          processedNewsIds.push(news.id);
+          console.log(`Applied news to ${asset.symbol}: ${changePercent.toFixed(2)}%, reversion in ${reversionMinutes}min`);
         }
-        
-        // Mark news as processed by clearing scheduled_for
-        await supabase
-          .from('news_events')
-          .update({ scheduled_for: null })
-          .eq('id', news.id);
+      }
+    }
+
+    // Handle mean reversion for active news
+    const now = new Date();
+    const { data: reversionNews, error: reversionError } = await supabase
+      .from('news_events')
+      .select('*')
+      .not('original_price', 'is', null)
+      .not('reversion_complete_at', 'is', null)
+      .gte('reversion_complete_at', now.toISOString());
+
+    if (!reversionError && reversionNews && reversionNews.length > 0) {
+      for (const news of reversionNews) {
+        const asset = assets?.find(a => a.id === news.asset_id);
+        if (asset) {
+          const currentPrice = Number(asset.current_price);
+          const originalPrice = Number(news.original_price);
+          
+          // Gradually revert price back to original
+          const reversionProgress = 0.15; // Revert 15% of the remaining difference per cycle
+          const newPrice = currentPrice + (originalPrice - currentPrice) * reversionProgress;
+          
+          await supabase
+            .from('assets')
+            .update({
+              current_price: newPrice,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', asset.id);
+          
+          // If close enough to original price, clear reversion tracking
+          if (Math.abs(newPrice - originalPrice) / originalPrice < 0.01) {
+            await supabase
+              .from('news_events')
+              .update({ 
+                original_price: null,
+                reversion_complete_at: null
+              })
+              .eq('id', news.id);
+            
+            console.log(`Reversion complete for ${asset.symbol}`);
+          }
+        }
       }
     }
 
     // Update each asset with normal fluctuations
     for (const asset of assets || []) {
+      // Skip assets currently under news impact or reversion
+      const hasActiveNews = reversionNews?.some(n => n.asset_id === asset.id) || 
+                           processedNewsIds.some(id => triggeredNews?.find(n => n.id === id && n.asset_id === asset.id));
+      
+      if (hasActiveNews) continue;
+      
       let priceChange = 0;
       
       // Normal small random fluctuation

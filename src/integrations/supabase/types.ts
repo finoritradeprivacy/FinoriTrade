@@ -72,6 +72,8 @@ export type Database = {
           id: string
           impact_strength: number
           impact_type: string
+          original_price: number | null
+          reversion_complete_at: string | null
           scheduled_for: string | null
         }
         Insert: {
@@ -83,6 +85,8 @@ export type Database = {
           id?: string
           impact_strength?: number
           impact_type: string
+          original_price?: number | null
+          reversion_complete_at?: string | null
           scheduled_for?: string | null
         }
         Update: {
@@ -94,6 +98,8 @@ export type Database = {
           id?: string
           impact_strength?: number
           impact_type?: string
+          original_price?: number | null
+          reversion_complete_at?: string | null
           scheduled_for?: string | null
         }
         Relationships: [
