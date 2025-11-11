@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { TrendingUp, TrendingDown, Bitcoin, LineChart, DollarSign, MoreVertical } from "lucide-react";
+import { TrendingUp, TrendingDown, Bitcoin, LineChart, DollarSign, MoreVertical, Newspaper } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 import AssetsOverviewDialog from "./AssetsOverviewDialog";
 
 interface AssetSelectorProps {
@@ -12,16 +13,73 @@ interface AssetSelectorProps {
 }
 
 const AssetSelector = ({ assets, selectedAsset, onSelectAsset }: AssetSelectorProps) => {
-  const [selectedCategory, setSelectedCategory] = useState<'crypto' | 'stocks' | 'forex'>('crypto');
+  const [selectedCategory, setSelectedCategory] = useState<'crypto' | 'stocks' | 'forex' | 'news'>('crypto');
   const [showOverview, setShowOverview] = useState(false);
+  const [pendingNews, setPendingNews] = useState<any[]>([]);
+  const [, setTick] = useState(0);
 
-  const filteredAssets = assets.filter(asset => asset.category === selectedCategory);
+  useEffect(() => {
+    const fetchPendingNews = async () => {
+      const { data } = await supabase
+        .from("news_events")
+        .select("*, assets!inner(id, symbol, name)")
+        .not("scheduled_for", "is", null)
+        .order("scheduled_for", { ascending: true });
+      
+      if (data) setPendingNews(data);
+    };
+
+    fetchPendingNews();
+
+    // Update countdown every second
+    const interval = setInterval(() => {
+      setTick(prev => prev + 1);
+    }, 1000);
+
+    const channel = supabase
+      .channel('news-updates-selector')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'news_events' },
+        () => {
+          fetchPendingNews();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      clearInterval(interval);
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const filteredAssets = selectedCategory === 'news' 
+    ? [] 
+    : assets.filter(asset => asset.category === selectedCategory);
 
   const categories = [
     { id: 'crypto' as const, label: 'Crypto', icon: Bitcoin },
     { id: 'stocks' as const, label: 'Stocks', icon: LineChart },
     { id: 'forex' as const, label: 'Forex', icon: DollarSign },
+    { id: 'news' as const, label: 'News', icon: Newspaper },
   ];
+
+  const getCountdown = (scheduledFor: string) => {
+    const now = Date.now();
+    const scheduled = new Date(scheduledFor).getTime();
+    const diff = scheduled - now;
+    
+    if (diff <= 0) return "Triggering...";
+    
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+    
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    }
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
 
   return (
     <>
@@ -49,57 +107,97 @@ const AssetSelector = ({ assets, selectedAsset, onSelectAsset }: AssetSelectorPr
           </Button>
         </div>
       
-        <div className="flex gap-3 overflow-x-auto pb-2">
-          {filteredAssets.map((asset) => {
-            const isPositive = Number(asset.price_change_24h) >= 0;
-            const isSelected = selectedAsset?.id === asset.id;
-
-            return (
-              <button
-                key={asset.id}
-                onClick={() => onSelectAsset(asset)}
-                className={cn(
-                  "flex-shrink-0 px-4 py-3 rounded-lg transition-all",
-                  "hover:scale-105 active:scale-95",
-                  isSelected
-                    ? "bg-primary/20 border-2 border-primary"
-                    : "bg-secondary/50 border border-border hover:bg-secondary"
-                )}
-              >
-                <div className="flex items-center gap-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-lg">{asset.symbol}</span>
-                      {isPositive ? (
-                        <TrendingUp className="w-4 h-4 text-success" />
-                      ) : (
-                        <TrendingDown className="w-4 h-4 text-destructive" />
-                      )}
+      <div className="flex gap-3 overflow-x-auto pb-2">
+          {selectedCategory === 'news' ? (
+            pendingNews.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4 w-full text-center">
+                No pending news events
+              </p>
+            ) : (
+              pendingNews.map((news) => (
+                <button
+                  key={news.id}
+                  onClick={() => {
+                    const asset = assets.find(a => a.id === news.asset_id);
+                    if (asset) onSelectAsset(asset);
+                  }}
+                  className="flex-shrink-0 px-4 py-3 rounded-lg transition-all bg-primary/5 border-2 border-primary/20 hover:bg-primary/10 animate-pulse"
+                >
+                  <div className="flex items-center gap-3">
+                    <Newspaper className="w-5 h-5 text-primary" />
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-lg">{news.assets.symbol}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground text-left">
+                        {news.assets.name}
+                      </p>
                     </div>
-                    <p className="text-xs text-muted-foreground text-left">
-                      {asset.name}
-                    </p>
+                    
+                    <div className="text-right">
+                      <p className="text-xs font-semibold text-primary mb-1">
+                        📢 New event in
+                      </p>
+                      <p className="font-mono font-bold text-primary">
+                        {getCountdown(news.scheduled_for)}
+                      </p>
+                    </div>
                   </div>
-                  
-                  <div className="text-right">
-                    <p className="font-mono font-semibold">
-                      ${Number(asset.current_price).toLocaleString('en-US', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: asset.current_price < 1 ? 6 : 2
-                      })}
-                    </p>
-                    <p className={cn(
-                      "text-xs font-medium",
-                      isPositive ? "text-success" : "text-destructive"
-                    )}>
-                      {isPositive ? "+" : ""}
-                      {Number(asset.price_change_24h).toFixed(2)}%
-                    </p>
+                </button>
+              ))
+            )
+          ) : (
+            filteredAssets.map((asset) => {
+              const isPositive = Number(asset.price_change_24h) >= 0;
+              const isSelected = selectedAsset?.id === asset.id;
+
+              return (
+                <button
+                  key={asset.id}
+                  onClick={() => onSelectAsset(asset)}
+                  className={cn(
+                    "flex-shrink-0 px-4 py-3 rounded-lg transition-all",
+                    "hover:scale-105 active:scale-95",
+                    isSelected
+                      ? "bg-primary/20 border-2 border-primary"
+                      : "bg-secondary/50 border border-border hover:bg-secondary"
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-lg">{asset.symbol}</span>
+                        {isPositive ? (
+                          <TrendingUp className="w-4 h-4 text-success" />
+                        ) : (
+                          <TrendingDown className="w-4 h-4 text-destructive" />
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground text-left">
+                        {asset.name}
+                      </p>
+                    </div>
+                    
+                    <div className="text-right">
+                      <p className="font-mono font-semibold">
+                        ${Number(asset.current_price).toLocaleString('en-US', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: asset.current_price < 1 ? 6 : 2
+                        })}
+                      </p>
+                      <p className={cn(
+                        "text-xs font-medium",
+                        isPositive ? "text-success" : "text-destructive"
+                      )}>
+                        {isPositive ? "+" : ""}
+                        {Number(asset.price_change_24h).toFixed(2)}%
+                      </p>
+                    </div>
                   </div>
-                </div>
-              </button>
-            );
-          })}
+                </button>
+              );
+            })
+          )}
         </div>
       </Card>
 
