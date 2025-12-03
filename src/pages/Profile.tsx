@@ -8,42 +8,13 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { 
-  TrendingUp, 
-  TrendingDown, 
-  Award, 
-  DollarSign, 
-  Clock, 
-  Target,
-  LogOut,
-  RotateCcw,
-  Trash2,
-  UserPlus,
-  Camera,
-  ArrowLeft
-} from "lucide-react";
+import { TrendingUp, TrendingDown, Award, DollarSign, Clock, Target, LogOut, RotateCcw, Trash2, UserPlus, Camera, ArrowLeft } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import Portfolio from "@/components/trading/Portfolio";
-
 interface ProfileData {
   nickname: string;
   email: string;
@@ -56,24 +27,26 @@ interface ProfileData {
   total_profit_loss: number;
   usdt_balance: number;
 }
-
 const Profile = () => {
-  const { user, signOut } = useAuth();
+  const {
+    user,
+    signOut
+  } = useAuth();
   const navigate = useNavigate();
-  const { toast } = useToast();
+  const {
+    toast
+  } = useToast();
   const [profileData, setProfileData] = useState<ProfileData | null>(null);
   const [loading, setLoading] = useState(true);
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showAvatarDialog, setShowAvatarDialog] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState("");
-
   useEffect(() => {
     if (!user) {
       navigate("/auth");
       return;
     }
-
     fetchProfileData();
 
     // Track played time
@@ -83,29 +56,10 @@ const Profile = () => {
 
     return () => clearInterval(interval);
   }, [user, navigate]);
-
   const fetchProfileData = async () => {
     if (!user) return;
-
     try {
-      const [profileRes, statsRes, balanceRes] = await Promise.all([
-        supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", user.id)
-          .single(),
-        supabase
-          .from("player_stats")
-          .select("*")
-          .eq("user_id", user.id)
-          .maybeSingle(),
-        supabase
-          .from("user_balances")
-          .select("*")
-          .eq("user_id", user.id)
-          .single(),
-      ]);
-
+      const [profileRes, statsRes, balanceRes] = await Promise.all([supabase.from("profiles").select("*").eq("id", user.id).single(), supabase.from("player_stats").select("*").eq("user_id", user.id).maybeSingle(), supabase.from("user_balances").select("*").eq("user_id", user.id).single()]);
       if (profileRes.data) {
         setProfileData({
           nickname: profileRes.data.nickname,
@@ -117,7 +71,7 @@ const Profile = () => {
           total_trades: profileRes.data.total_trades || 0,
           win_rate: profileRes.data.win_rate || 0,
           total_profit_loss: profileRes.data.total_profit_loss || 0,
-          usdt_balance: balanceRes.data?.usdt_balance || 0,
+          usdt_balance: balanceRes.data?.usdt_balance || 0
         });
       }
     } catch (error) {
@@ -125,57 +79,41 @@ const Profile = () => {
       toast({
         title: "Chyba",
         description: "Nepodařilo se načíst data profilu",
-        variant: "destructive",
+        variant: "destructive"
       });
     } finally {
       setLoading(false);
     }
   };
-
   const updatePlayedTime = async () => {
     if (!user) return;
-    
-    await supabase
-      .from("profiles")
-      .update({ 
-        played_time_seconds: (profileData?.played_time_seconds || 0) + 60,
-        last_active_at: new Date().toISOString()
-      })
-      .eq("id", user.id);
+    await supabase.from("profiles").update({
+      played_time_seconds: (profileData?.played_time_seconds || 0) + 60,
+      last_active_at: new Date().toISOString()
+    }).eq("id", user.id);
   };
-
   const handleResetPortfolio = async () => {
     if (!user) return;
-
     try {
       // Delete all orders, trades, and portfolio entries
-      await Promise.all([
-        supabase.from("orders").delete().eq("user_id", user.id),
-        supabase.from("trades").delete().eq("user_id", user.id),
-        supabase.from("portfolios").delete().eq("user_id", user.id),
-      ]);
+      await Promise.all([supabase.from("orders").delete().eq("user_id", user.id), supabase.from("trades").delete().eq("user_id", user.id), supabase.from("portfolios").delete().eq("user_id", user.id)]);
 
       // Reset balance to initial amount
-      await supabase
-        .from("user_balances")
-        .update({ usdt_balance: 100000, locked_balance: 0 })
-        .eq("user_id", user.id);
+      await supabase.from("user_balances").update({
+        usdt_balance: 100000,
+        locked_balance: 0
+      }).eq("user_id", user.id);
 
       // Reset profile stats
-      await supabase
-        .from("profiles")
-        .update({ 
-          total_trades: 0, 
-          win_rate: 0, 
-          total_profit_loss: 0 
-        })
-        .eq("id", user.id);
-
+      await supabase.from("profiles").update({
+        total_trades: 0,
+        win_rate: 0,
+        total_profit_loss: 0
+      }).eq("id", user.id);
       toast({
         title: "Portfolio resetováno",
-        description: "Vaše portfolio bylo úspěšně resetováno na výchozí stav",
+        description: "Vaše portfolio bylo úspěšně resetováno na výchozí stav"
       });
-
       setShowResetDialog(false);
       fetchProfileData();
     } catch (error) {
@@ -183,30 +121,19 @@ const Profile = () => {
       toast({
         title: "Chyba",
         description: "Nepodařilo se resetovat portfolio",
-        variant: "destructive",
+        variant: "destructive"
       });
     }
   };
-
   const handleDeleteAccount = async () => {
     if (!user) return;
-
     try {
       // Delete all user data
-      await Promise.all([
-        supabase.from("orders").delete().eq("user_id", user.id),
-        supabase.from("trades").delete().eq("user_id", user.id),
-        supabase.from("portfolios").delete().eq("user_id", user.id),
-        supabase.from("player_stats").delete().eq("user_id", user.id),
-        supabase.from("user_balances").delete().eq("user_id", user.id),
-        supabase.from("profiles").delete().eq("id", user.id),
-      ]);
-
+      await Promise.all([supabase.from("orders").delete().eq("user_id", user.id), supabase.from("trades").delete().eq("user_id", user.id), supabase.from("portfolios").delete().eq("user_id", user.id), supabase.from("player_stats").delete().eq("user_id", user.id), supabase.from("user_balances").delete().eq("user_id", user.id), supabase.from("profiles").delete().eq("id", user.id)]);
       toast({
         title: "Účet smazán",
-        description: "Váš účet byl úspěšně smazán",
+        description: "Váš účet byl úspěšně smazán"
       });
-
       await signOut();
       navigate("/auth");
     } catch (error) {
@@ -214,25 +141,20 @@ const Profile = () => {
       toast({
         title: "Chyba",
         description: "Nepodařilo se smazat účet",
-        variant: "destructive",
+        variant: "destructive"
       });
     }
   };
-
   const handleUpdateAvatar = async () => {
     if (!user || !avatarUrl.trim()) return;
-
     try {
-      await supabase
-        .from("profiles")
-        .update({ avatar_url: avatarUrl })
-        .eq("id", user.id);
-
+      await supabase.from("profiles").update({
+        avatar_url: avatarUrl
+      }).eq("id", user.id);
       toast({
         title: "Profilový obrázek aktualizován",
-        description: "Váš profilový obrázek byl úspěšně změněn",
+        description: "Váš profilový obrázek byl úspěšně změněn"
       });
-
       setShowAvatarDialog(false);
       fetchProfileData();
     } catch (error) {
@@ -240,58 +162,49 @@ const Profile = () => {
       toast({
         title: "Chyba",
         description: "Nepodařilo se aktualizovat profilový obrázek",
-        variant: "destructive",
+        variant: "destructive"
       });
     }
   };
-
   const formatPlayedTime = (seconds: number) => {
     const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
+    const minutes = Math.floor(seconds % 3600 / 60);
     return `${hours}h ${minutes}m`;
   };
-
   const calculateXpForNextLevel = () => {
-    if (!profileData) return { current: 0, needed: 1000, percentage: 0 };
-    
+    if (!profileData) return {
+      current: 0,
+      needed: 1000,
+      percentage: 0
+    };
+
     // Calculate total XP needed for current level
     let totalForCurrentLevel = 0;
     for (let i = 1; i <= profileData.level; i++) {
-      totalForCurrentLevel += (i * 500) + 500;
+      totalForCurrentLevel += i * 500 + 500;
     }
-    
+
     // Calculate XP needed for next level
-    const xpForNextLevel = ((profileData.level + 1) * 500) + 500;
+    const xpForNextLevel = (profileData.level + 1) * 500 + 500;
     const currentLevelXp = profileData.total_xp - totalForCurrentLevel;
-    const percentage = (currentLevelXp / xpForNextLevel) * 100;
-    
+    const percentage = currentLevelXp / xpForNextLevel * 100;
     return {
       current: Math.max(0, currentLevelXp),
       needed: xpForNextLevel,
       percentage: Math.max(0, Math.min(100, percentage))
     };
   };
-
   if (loading || !profileData) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+    return <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="animate-pulse text-muted-foreground">Načítání profilu...</div>
-      </div>
-    );
+      </div>;
   }
-
   const xpProgress = calculateXpForNextLevel();
   const isProfitable = profileData.total_profit_loss >= 0;
-
-  return (
-    <div className="min-h-screen bg-background">
+  return <div className="min-h-screen bg-background">
       <div className="container mx-auto px-4 py-8 max-w-6xl">
         {/* Back button */}
-        <Button
-          variant="ghost"
-          onClick={() => navigate("/trade")}
-          className="mb-6"
-        >
+        <Button variant="ghost" onClick={() => navigate("/trade")} className="mb-6">
           <ArrowLeft className="h-4 w-4 mr-2" />
           Zpět na trading
         </Button>
@@ -301,23 +214,14 @@ const Profile = () => {
           <div className="flex flex-col md:flex-row items-start md:items-center gap-6">
             <div className="relative">
               <Avatar className="h-24 w-24">
-                {profileData.avatar_url ? (
-                  <AvatarImage src={profileData.avatar_url} alt={profileData.nickname} />
-                ) : (
-                  <AvatarFallback className="bg-primary text-primary-foreground text-2xl font-bold">
+                {profileData.avatar_url ? <AvatarImage src={profileData.avatar_url} alt={profileData.nickname} /> : <AvatarFallback className="bg-primary text-primary-foreground text-2xl font-bold">
                     {profileData.nickname.substring(0, 2).toUpperCase()}
-                  </AvatarFallback>
-                )}
+                  </AvatarFallback>}
               </Avatar>
-              <Button
-                size="icon"
-                variant="secondary"
-                className="absolute -bottom-2 -right-2 h-8 w-8 rounded-full"
-                onClick={() => {
-                  setAvatarUrl(profileData.avatar_url || "");
-                  setShowAvatarDialog(true);
-                }}
-              >
+              <Button size="icon" variant="secondary" className="absolute -bottom-2 -right-2 h-8 w-8 rounded-full" onClick={() => {
+              setAvatarUrl(profileData.avatar_url || "");
+              setShowAvatarDialog(true);
+            }}>
                 <Camera className="h-4 w-4" />
               </Button>
             </div>
@@ -348,19 +252,11 @@ const Profile = () => {
             </div>
 
             <div className="flex flex-col gap-2">
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={() => setShowAvatarDialog(true)}
-              >
+              <Button variant="outline" className="w-full" onClick={() => setShowAvatarDialog(true)}>
                 <Camera className="h-4 w-4 mr-2" />
                 Změnit profilovku
               </Button>
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={() => signOut()}
-              >
+              <Button variant="outline" className="w-full" onClick={() => signOut()}>
                 <LogOut className="h-4 w-4 mr-2" />
                 Odhlásit se
               </Button>
@@ -378,7 +274,9 @@ const Profile = () => {
               <div>
                 <p className="text-sm text-muted-foreground">Balance</p>
                 <p className="text-2xl font-bold">
-                  ${profileData.usdt_balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  ${profileData.usdt_balance.toLocaleString('en-US', {
+                  minimumFractionDigits: 2
+                })}
                 </p>
               </div>
             </div>
@@ -387,16 +285,14 @@ const Profile = () => {
           <Card className="p-4">
             <div className="flex items-center gap-3">
               <div className={`p-2 rounded-lg ${isProfitable ? 'bg-green-500/10' : 'bg-red-500/10'}`}>
-                {isProfitable ? (
-                  <TrendingUp className="h-5 w-5 text-green-500" />
-                ) : (
-                  <TrendingDown className="h-5 w-5 text-red-500" />
-                )}
+                {isProfitable ? <TrendingUp className="h-5 w-5 text-green-500" /> : <TrendingDown className="h-5 w-5 text-red-500" />}
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Total P&L</p>
                 <p className={`text-2xl font-bold ${isProfitable ? 'text-green-500' : 'text-red-500'}`}>
-                  {isProfitable ? '+' : ''}${profileData.total_profit_loss.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  {isProfitable ? '+' : ''}${profileData.total_profit_loss.toLocaleString('en-US', {
+                  minimumFractionDigits: 2
+                })}
                 </p>
               </div>
             </div>
@@ -429,7 +325,7 @@ const Profile = () => {
 
         {/* Additional Stats */}
         <Card className="p-6 mb-6">
-          <h2 className="text-xl font-semibold mb-4">Obchodní statistiky</h2>
+          <h2 className="text-xl font-semibold mb-4">​Business statistics </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
               <p className="text-sm text-muted-foreground mb-1">Celkem obchodů</p>
@@ -438,13 +334,13 @@ const Profile = () => {
             <div>
               <p className="text-sm text-muted-foreground mb-1">Úspěšné obchody</p>
               <p className="text-3xl font-bold text-green-500">
-                {Math.round((profileData.win_rate / 100) * profileData.total_trades)}
+                {Math.round(profileData.win_rate / 100 * profileData.total_trades)}
               </p>
             </div>
             <div>
               <p className="text-sm text-muted-foreground mb-1">Neúspěšné obchody</p>
               <p className="text-3xl font-bold text-red-500">
-                {profileData.total_trades - Math.round((profileData.win_rate / 100) * profileData.total_trades)}
+                {profileData.total_trades - Math.round(profileData.win_rate / 100 * profileData.total_trades)}
               </p>
             </div>
           </div>
@@ -456,10 +352,10 @@ const Profile = () => {
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <UserPlus className="h-5 w-5 text-primary" />
-                <h3 className="text-lg font-semibold">Pozvěte přítele</h3>
+                <h3 className="text-lg font-semibold">​Invite friends </h3>
               </div>
               <p className="text-muted-foreground">
-                Pozvěte přátele a získejte odměnu!
+                ​Invite friends and get rewarded!    
               </p>
             </div>
             <Button size="lg" className="font-semibold">
@@ -470,7 +366,7 @@ const Profile = () => {
 
         {/* Portfolio */}
         <div className="mb-6">
-          <h2 className="text-2xl font-bold mb-4">Vaše Portfolio</h2>
+          <h2 className="text-2xl font-bold mb-4">​Your Portfolio</h2>
           <Portfolio />
         </div>
 
@@ -487,10 +383,7 @@ const Profile = () => {
                   Smaže všechny obchody a obnoví počáteční balance
                 </p>
               </div>
-              <Button
-                variant="outline"
-                onClick={() => setShowResetDialog(true)}
-              >
+              <Button variant="outline" onClick={() => setShowResetDialog(true)}>
                 <RotateCcw className="h-4 w-4 mr-2" />
                 Reset
               </Button>
@@ -505,10 +398,7 @@ const Profile = () => {
                   Trvale smaže váš účet a všechna data
                 </p>
               </div>
-              <Button
-                variant="destructive"
-                onClick={() => setShowDeleteDialog(true)}
-              >
+              <Button variant="destructive" onClick={() => setShowDeleteDialog(true)}>
                 <Trash2 className="h-4 w-4 mr-2" />
                 Smazat
               </Button>
@@ -548,10 +438,7 @@ const Profile = () => {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Zrušit</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDeleteAccount}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
+            <AlertDialogAction onClick={handleDeleteAccount} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               Ano, smazat účet
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -570,21 +457,14 @@ const Profile = () => {
           <div className="space-y-4">
             <div>
               <Label htmlFor="avatar-url">URL obrázku</Label>
-              <Input
-                id="avatar-url"
-                placeholder="https://example.com/avatar.jpg"
-                value={avatarUrl}
-                onChange={(e) => setAvatarUrl(e.target.value)}
-              />
+              <Input id="avatar-url" placeholder="https://example.com/avatar.jpg" value={avatarUrl} onChange={e => setAvatarUrl(e.target.value)} />
             </div>
-            {avatarUrl && (
-              <div className="flex justify-center">
+            {avatarUrl && <div className="flex justify-center">
                 <Avatar className="h-24 w-24">
                   <AvatarImage src={avatarUrl} alt="Preview" />
                   <AvatarFallback>Preview</AvatarFallback>
                 </Avatar>
-              </div>
-            )}
+              </div>}
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setShowAvatarDialog(false)}>
                 Zrušit
@@ -596,8 +476,6 @@ const Profile = () => {
           </div>
         </DialogContent>
       </Dialog>
-    </div>
-  );
+    </div>;
 };
-
 export default Profile;
