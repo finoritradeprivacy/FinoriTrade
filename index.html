@@ -58,29 +58,26 @@
     <div id="finori-legal-gate" style="display: none;">
       <div class="finori-legal-overlay">
         <div class="finori-legal-box">
-          <h2>Terms & Age Confirmation</h2>
+          <h2 style="margin-bottom: 15px;">Terms of Use</h2>
 
-          <p>By continuing, you confirm that:</p>
+          <p style="margin-bottom: 15px; font-size: 14px; color: #333;">
+            By accessing or using the Service, you agree to these Terms of Use and the Privacy Policy (collectively, the "Terms").
+            If you do not agree with these Terms, you may not use the Service.
+          </p>
 
-          <ul>
-            <li>You are at least <strong>18 years old</strong>.</li>
-            <li>You agree to our <a href="/terms" target="_blank">Terms & Conditions</a>.</li>
-            <li>You agree to our <a href="/privacy" target="_blank">Privacy Policy</a>.</li>
-          </ul>
-
-          <label style="display:flex; gap: 10px; margin-top: 10px;">
-            <input type="checkbox" id="finori-age-check">
-            <span>I am at least 16 years old.</span>
+          <label style="display:flex; gap: 10px; margin-top: 15px; align-items: flex-start;">
+            <input type="checkbox" id="finori-age-check" style="margin-top: 3px;">
+            <span style="font-size: 14px;">By using this platform I agree that I am over 18 years old.</span>
           </label>
 
-          <label style="display:flex; gap: 10px; margin-top: 5px;">
-            <input type="checkbox" id="finori-terms-check">
-            <span>I agree to the Terms & Conditions.</span>
+          <label style="display:flex; gap: 10px; margin-top: 10px; align-items: flex-start;">
+            <input type="checkbox" id="finori-simulator-check" style="margin-top: 3px;">
+            <span style="font-size: 14px;">I agree that I am aware that FinoriTrade is strictly a virtual trading simulator.</span>
           </label>
 
-          <label style="display:flex; gap: 10px; margin-top: 5px;">
-            <input type="checkbox" id="finori-privacy-check">
-            <span>I agree to the Privacy Policy.</span>
+          <label style="display:flex; gap: 10px; margin-top: 10px; align-items: flex-start;">
+            <input type="checkbox" id="finori-terms-check" style="margin-top: 3px;">
+            <span style="font-size: 14px;">I agree with everything stated in <a href="https://docs.google.com/document/d/1pDJrRq4CcQAN18keSsrTexdAhXDmeNv14ohOg4wjy8E/edit?usp=sharing" target="_blank" style="color: #0070f3;">this document</a>.</span>
           </label>
 
           <button id="finori-accept-btn">Continue</button>
@@ -98,11 +95,11 @@
 
         document.getElementById("finori-accept-btn").addEventListener("click", () => {
           const age = document.getElementById("finori-age-check").checked;
+          const simulator = document.getElementById("finori-simulator-check").checked;
           const terms = document.getElementById("finori-terms-check").checked;
-          const privacy = document.getElementById("finori-privacy-check").checked;
 
-          if (!age || !terms || !privacy) {
-            alert("You must confirm all conditions to continue.");
+          if (!age || !simulator || !terms) {
+            alert("You must agree to all conditions to continue.");
             return;
           }
 
