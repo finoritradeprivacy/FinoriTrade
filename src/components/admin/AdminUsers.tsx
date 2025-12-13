@@ -277,6 +277,45 @@ export const AdminUsers = () => {
     }
   };
 
+  const handleDeleteAccount = async () => {
+    if (!selectedUser) return;
+
+    try {
+      // Delete all user data in correct order (respecting foreign keys)
+      await supabase.from('portfolios').delete().eq('user_id', selectedUser.id);
+      await supabase.from('trades').delete().eq('user_id', selectedUser.id);
+      await supabase.from('orders').delete().eq('user_id', selectedUser.id);
+      await supabase.from('price_alerts').delete().eq('user_id', selectedUser.id);
+      await supabase.from('user_notifications').delete().eq('user_id', selectedUser.id);
+      await supabase.from('user_challenge_progress').delete().eq('user_id', selectedUser.id);
+      await supabase.from('user_daily_streak').delete().eq('user_id', selectedUser.id);
+      await supabase.from('dividend_payments').delete().eq('user_id', selectedUser.id);
+      await supabase.from('dividend_snapshots').delete().eq('user_id', selectedUser.id);
+      await supabase.from('promo_code_redemptions').delete().eq('user_id', selectedUser.id);
+      await supabase.from('user_sessions').delete().eq('user_id', selectedUser.id);
+      await supabase.from('user_bans').delete().eq('user_id', selectedUser.id);
+      await supabase.from('user_restrictions').delete().eq('user_id', selectedUser.id);
+      await supabase.from('user_roles').delete().eq('user_id', selectedUser.id);
+      await supabase.from('player_stats').delete().eq('user_id', selectedUser.id);
+      await supabase.from('user_balances').delete().eq('user_id', selectedUser.id);
+      await supabase.from('profiles').delete().eq('id', selectedUser.id);
+
+      await supabase.rpc('log_admin_action', {
+        p_action_type: 'delete_account',
+        p_entity_type: 'user',
+        p_entity_id: selectedUser.id,
+        p_details: { nickname: selectedUser.nickname, email: selectedUser.email }
+      });
+
+      toast.success(`Account ${selectedUser.nickname} has been deleted`);
+      setShowDeleteDialog(false);
+      fetchUsers();
+    } catch (error) {
+      console.error('Error deleting account:', error);
+      toast.error('Failed to delete account');
+    }
+  };
+
   const handleExportUserData = async (user: User) => {
     try {
       const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
@@ -414,6 +453,9 @@ export const AdminUsers = () => {
                           </Button>
                           <Button size="sm" variant="ghost" onClick={() => handleExportUserData(user)}>
                             <Download className="h-4 w-4" />
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => { setSelectedUser(user); setShowDeleteDialog(true); }}>
+                            <Trash2 className="h-4 w-4 text-red-500" />
                           </Button>
                         </div>
                       </TableCell>
@@ -572,6 +614,24 @@ export const AdminUsers = () => {
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowRoleDialog(false)}>Cancel</Button>
             <Button onClick={handleChangeRole}>Save Role</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Account Dialog */}
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Account: {selectedUser?.nickname}</DialogTitle>
+            <DialogDescription>
+              This will permanently delete the user's account and all associated data. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDeleteAccount}>
+              Delete Account
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

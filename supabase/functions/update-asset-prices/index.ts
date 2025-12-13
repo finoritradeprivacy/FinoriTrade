@@ -60,6 +60,20 @@ Deno.serve(async (req) => {
 
     if (assetsError) throw assetsError;
 
+    // Delete news events older than 1 hour (after publication)
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { error: deleteNewsError, count: deletedCount } = await supabase
+      .from('news_events')
+      .delete()
+      .is('scheduled_for', null) // Already triggered/published
+      .lt('created_at', oneHourAgo);
+
+    if (deleteNewsError) {
+      console.error('Error deleting old news:', deleteNewsError);
+    } else if (deletedCount && deletedCount > 0) {
+      console.log(`Deleted ${deletedCount} old news events`);
+    }
+
     // Get news events that are ready to trigger (scheduled_for <= now and not yet processed)
     const nowISO = new Date().toISOString();
     const { data: triggeredNews, error: newsError } = await supabase
