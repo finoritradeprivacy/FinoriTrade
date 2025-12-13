@@ -59,22 +59,28 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
   const [lastCandle, setLastCandle] = useState<CandlestickData | null>(null);
   const [drawingInProgress, setDrawingInProgress] = useState<{ type: DrawingTool; points: Array<{ time: number; price: number }> } | null>(null);
   const [isLoadingData, setIsLoadingData] = useState(false);
-  const [priceCountdown, setPriceCountdown] = useState(60);
+  const [priceCountdown, setPriceCountdown] = useState(15);
+  const lastUpdateTimeRef = useRef<Date | null>(null);
 
-  // Price update countdown - resets every 15 seconds
+  // Price update countdown - syncs with actual asset updates
   useEffect(() => {
-    const calculateSecondsToNextUpdate = () => {
-      const now = new Date();
-      const seconds = now.getSeconds();
-      // Updates happen at 0, 15, 30, 45 seconds of each minute
-      const secondsInCycle = seconds % 15;
-      return 15 - secondsInCycle;
-    };
+    if (asset?.updated_at) {
+      const updateTime = new Date(asset.updated_at);
+      // Only reset countdown when we detect a new update
+      if (!lastUpdateTimeRef.current || updateTime.getTime() > lastUpdateTimeRef.current.getTime()) {
+        lastUpdateTimeRef.current = updateTime;
+        setPriceCountdown(15);
+      }
+    }
+  }, [asset?.updated_at]);
 
-    setPriceCountdown(calculateSecondsToNextUpdate());
-
+  // Countdown timer
+  useEffect(() => {
     const interval = setInterval(() => {
-      setPriceCountdown(calculateSecondsToNextUpdate());
+      setPriceCountdown(prev => {
+        if (prev <= 0) return 0;
+        return prev - 1;
+      });
     }, 1000);
 
     return () => clearInterval(interval);
