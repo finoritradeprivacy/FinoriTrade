@@ -250,6 +250,173 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Process pending limit and stop orders
+    const { data: pendingOrders, error: ordersError } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('status', 'pending')
+      .in('order_type', ['limit', 'stop']);
+
+    if (!ordersError && pendingOrders && pendingOrders.length > 0) {
+      for (const order of pendingOrders) {
+        const asset = assets?.find(a => a.id === order.asset_id);
+        if (!asset) continue;
+
+        const currentPrice = Number(asset.current_price);
+        const orderPrice = Number(order.price);
+        const stopPrice = order.stop_price ? Number(order.stop_price) : null;
+        let shouldExecute = false;
+
+        if (order.order_type === 'limit') {
+          // Limit buy: execute when current price <= order price
+          // Limit sell: execute when current price >= order price
+          if (order.side === 'buy' && currentPrice <= orderPrice) {
+            shouldExecute = true;
+          } else if (order.side === 'sell' && currentPrice >= orderPrice) {
+            shouldExecute = true;
+          }
+        } else if (order.order_type === 'stop' && stopPrice) {
+          // Stop buy: execute when current price >= stop price
+          // Stop sell: execute when current price <= stop price
+          if (order.side === 'buy' && currentPrice >= stopPrice) {
+            shouldExecute = true;
+          } else if (order.side === 'sell' && currentPrice <= stopPrice) {
+            shouldExecute = true;
+          }
+        }
+
+        if (shouldExecute) {
+          try {
+            // Get user balance
+            const { data: balanceData } = await supabase
+              .from('user_balances')
+              .select('usdt_balance')
+              .eq('user_id', order.user_id)
+              .single();
+
+            // Get user portfolio for this asset
+            const { data: portfolioData } = await supabase
+              .from('portfolios')
+              .select('*')
+              .eq('user_id', order.user_id)
+              .eq('asset_id', order.asset_id)
+              .maybeSingle();
+
+            const orderQuantity = Number(order.quantity);
+            const executionPrice = order.order_type === 'stop' ? currentPrice : orderPrice;
+            const totalValue = orderQuantity * executionPrice;
+            
+            if (order.side === 'buy') {
+              // Check balance
+              if (!balanceData || Number(balanceData.usdt_balance) < totalValue) {
+                // Cancel order - insufficient balance
+                await supabase.from('orders').update({ status: 'cancelled' }).eq('id', order.id);
+                await supabase.from('user_notifications').insert({
+                  user_id: order.user_id,
+                  notification_type: 'order_cancelled',
+                  title: `Order Cancelled: ${asset.symbol}`,
+                  message: `Insufficient balance to execute ${order.order_type} buy order for ${orderQuantity} ${asset.symbol}`,
+                  metadata: { order_id: order.id, asset_symbol: asset.symbol }
+                });
+                continue;
+              }
+
+              // Deduct balance
+              await supabase.from('user_balances')
+                .update({ usdt_balance: Number(balanceData.usdt_balance) - totalValue })
+                .eq('user_id', order.user_id);
+
+              // Update or create portfolio
+              if (portfolioData) {
+                const newQuantity = Number(portfolioData.quantity) + orderQuantity;
+                const newInvested = Number(portfolioData.total_invested) + totalValue;
+                const newAvgPrice = newInvested / newQuantity;
+                await supabase.from('portfolios')
+                  .update({ quantity: newQuantity, total_invested: newInvested, average_buy_price: newAvgPrice })
+                  .eq('id', portfolioData.id);
+              } else {
+                await supabase.from('portfolios').insert({
+                  user_id: order.user_id,
+                  asset_id: order.asset_id,
+                  quantity: orderQuantity,
+                  average_buy_price: executionPrice,
+                  total_invested: totalValue
+                });
+              }
+            } else {
+              // Sell order
+              if (!portfolioData || Number(portfolioData.quantity) < orderQuantity) {
+                // Cancel order - insufficient holdings
+                await supabase.from('orders').update({ status: 'cancelled' }).eq('id', order.id);
+                await supabase.from('user_notifications').insert({
+                  user_id: order.user_id,
+                  notification_type: 'order_cancelled',
+                  title: `Order Cancelled: ${asset.symbol}`,
+                  message: `Insufficient holdings to execute ${order.order_type} sell order for ${orderQuantity} ${asset.symbol}`,
+                  metadata: { order_id: order.id, asset_symbol: asset.symbol }
+                });
+                continue;
+              }
+
+              // Add balance
+              const { data: currentBalance } = await supabase
+                .from('user_balances')
+                .select('usdt_balance')
+                .eq('user_id', order.user_id)
+                .single();
+
+              await supabase.from('user_balances')
+                .update({ usdt_balance: Number(currentBalance?.usdt_balance || 0) + totalValue })
+                .eq('user_id', order.user_id);
+
+              // Update portfolio
+              const newQuantity = Number(portfolioData.quantity) - orderQuantity;
+              if (newQuantity <= 0) {
+                await supabase.from('portfolios').delete().eq('id', portfolioData.id);
+              } else {
+                const newInvested = Number(portfolioData.total_invested) * (newQuantity / Number(portfolioData.quantity));
+                await supabase.from('portfolios')
+                  .update({ quantity: newQuantity, total_invested: newInvested })
+                  .eq('id', portfolioData.id);
+              }
+            }
+
+            // Create trade record
+            await supabase.from('trades').insert({
+              user_id: order.user_id,
+              asset_id: order.asset_id,
+              order_id: order.id,
+              side: order.side,
+              quantity: orderQuantity,
+              price: executionPrice,
+              total_value: totalValue
+            });
+
+            // Mark order as filled
+            await supabase.from('orders').update({
+              status: 'filled',
+              filled_quantity: orderQuantity,
+              average_fill_price: executionPrice,
+              filled_at: new Date().toISOString()
+            }).eq('id', order.id);
+
+            // Send notification
+            await supabase.from('user_notifications').insert({
+              user_id: order.user_id,
+              notification_type: 'order_filled',
+              title: `Order Filled: ${asset.symbol}`,
+              message: `Your ${order.order_type} ${order.side} order for ${orderQuantity} ${asset.symbol} was executed at $${executionPrice.toFixed(2)}`,
+              metadata: { order_id: order.id, asset_symbol: asset.symbol, price: executionPrice, quantity: orderQuantity }
+            });
+
+            console.log(`Executed ${order.order_type} ${order.side} order for ${asset.symbol}: ${orderQuantity} @ ${executionPrice}`);
+          } catch (execError) {
+            console.error(`Error executing order ${order.id}:`, execError);
+          }
+        }
+      }
+    }
+
     // Check price alerts and trigger notifications
     const { data: activeAlerts, error: alertsError } = await supabase
       .from('price_alerts')
