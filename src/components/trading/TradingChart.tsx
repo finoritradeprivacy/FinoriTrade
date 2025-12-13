@@ -141,6 +141,46 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
     };
   }, []);
 
+  // Aggregate 1m candles into larger timeframes
+  const aggregateCandles = (
+    data: Array<{ time: number; open: number; high: number; low: number; close: number }>,
+    timeframeSeconds: number
+  ): CandlestickData[] => {
+    if (timeframeSeconds === 60) {
+      // No aggregation needed for 1m
+      return data.map(d => ({
+        time: d.time as UTCTimestamp,
+        open: d.open,
+        high: d.high,
+        low: d.low,
+        close: d.close,
+      }));
+    }
+
+    const aggregated: Map<number, CandlestickData> = new Map();
+    
+    for (const candle of data) {
+      const bucketTime = Math.floor(candle.time / timeframeSeconds) * timeframeSeconds;
+      
+      const existing = aggregated.get(bucketTime);
+      if (existing) {
+        existing.high = Math.max(existing.high, candle.high);
+        existing.low = Math.min(existing.low, candle.low);
+        existing.close = candle.close; // Last candle's close becomes the aggregated close
+      } else {
+        aggregated.set(bucketTime, {
+          time: bucketTime as UTCTimestamp,
+          open: candle.open,
+          high: candle.high,
+          low: candle.low,
+          close: candle.close,
+        });
+      }
+    }
+    
+    return Array.from(aggregated.values()).sort((a, b) => (a.time as number) - (b.time as number));
+  };
+
   // Generate historical candlestick data
   const generateHistoricalData = async () => {
     if (!candlestickSeriesRef.current || !asset) return;
@@ -149,10 +189,12 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
 
     const timeframeSeconds = getTimeframeSeconds(timeframe);
     const now = Math.floor(Date.now() / 1000);
-    const startTime = now - 100 * timeframeSeconds;
+    // Fetch more 1m candles to have enough data for aggregation
+    const candlesNeeded = 100 * (timeframeSeconds / 60);
+    const startTime = now - candlesNeeded * 60;
 
     try {
-      // Try to load existing data from database
+      // Load 1m candles from database
       const { data: existingData, error } = await supabase
         .from('price_history')
         .select('*')
@@ -163,16 +205,20 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
       if (error) throw error;
 
       if (existingData && existingData.length > 0) {
-        const chartData: CandlestickData[] = existingData.map(d => ({
-          time: Number(d.time) as UTCTimestamp,
+        const rawData = existingData.map(d => ({
+          time: Number(d.time),
           open: Number(d.open),
           high: Number(d.high),
           low: Number(d.low),
           close: Number(d.close),
         }));
+        
+        // Aggregate candles based on selected timeframe
+        const chartData = aggregateCandles(rawData, timeframeSeconds);
+        
         candlestickSeriesRef.current.setData(chartData);
-        setLastCandle(chartData[chartData.length - 1]);
-        console.log(`Loaded ${chartData.length} candles from database`);
+        setLastCandle(chartData[chartData.length - 1] || null);
+        console.log(`Loaded ${existingData.length} 1m candles, aggregated to ${chartData.length} ${timeframe} candles`);
       } else {
         // No pre-generated history: start empty and let realtime build from now
         candlestickSeriesRef.current.setData([]);
@@ -711,7 +757,7 @@ export const TradingChart = ({ asset }: TradingChartProps) => {
           <div className="absolute inset-0 bg-[#0B0E11]/80 flex items-center justify-center">
             <div className="text-center">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-2"></div>
-              <p className="text-sm text-muted-foreground">Načítám data...</p>
+              <p className="text-sm text-muted-foreground">Loading chart data...</p>
             </div>
           </div>
         )}
