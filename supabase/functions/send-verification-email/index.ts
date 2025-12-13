@@ -145,10 +145,13 @@ serve(async (req: Request): Promise<Response> => {
         }),
       });
 
+      const emailResponseData = await emailResponse.json();
+      console.log("Resend API response status:", emailResponse.status);
+      console.log("Resend API response data:", JSON.stringify(emailResponseData));
+
       if (!emailResponse.ok) {
-        const emailError = await emailResponse.text();
-        console.error("Error sending email:", emailError);
-        return new Response(JSON.stringify({ error: "Failed to send verification email" }), {
+        console.error("Error sending email - Status:", emailResponse.status, "Data:", JSON.stringify(emailResponseData));
+        return new Response(JSON.stringify({ error: emailResponseData.message || "Failed to send verification email", details: emailResponseData }), {
           status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
