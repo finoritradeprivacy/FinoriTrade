@@ -59,12 +59,30 @@ Deno.serve(async (req) => {
     if (assetsError) throw assetsError;
     if (!assets || assets.length === 0) throw new Error('No assets found');
 
-    // Select 5-20 random assets
-    const numberOfAssets = Math.floor(Math.random() * 16) + 5; // 5-20
+    // Select exactly 3 random assets for each 20-minute cycle
+    const numberOfAssets = 3;
     const shuffled = [...assets].sort(() => Math.random() - 0.5);
-    const selectedAssets = shuffled.slice(0, numberOfAssets);
+    const selectedAssets = shuffled.slice(0, Math.min(numberOfAssets, assets.length));
 
     console.log(`Generating news for ${selectedAssets.length} assets`);
+
+    // Calculate next trigger time based on current 20-minute window
+    // News triggers at XX:00, XX:20, XX:40
+    const currentMinutes = cetTime.getMinutes();
+    let nextTriggerMinute: number;
+    if (currentMinutes < 20) {
+      nextTriggerMinute = 20;
+    } else if (currentMinutes < 40) {
+      nextTriggerMinute = 40;
+    } else {
+      nextTriggerMinute = 60; // Next hour :00
+    }
+    
+    const minutesUntilTrigger = nextTriggerMinute - currentMinutes;
+    const scheduledFor = new Date(now.getTime() + minutesUntilTrigger * 60000);
+    // Set seconds and milliseconds to 0 for clean timing
+    scheduledFor.setSeconds(0);
+    scheduledFor.setMilliseconds(0);
 
     // Generate news for each selected asset
     const newsPromises = selectedAssets.map(async (asset: Asset) => {
@@ -129,9 +147,16 @@ Keep it professional and market-relevant. Return JSON with "headline" (max 80 ch
           const responseText = aiData.choices?.[0]?.message?.content || '';
           
           try {
-            const parsed = JSON.parse(responseText);
-            headline = parsed.headline || `${asset.name} ${eventType.replace('_', ' ')} update`;
-            content = parsed.content || `Market moving news for ${asset.symbol}`;
+            // Try to extract JSON from the response
+            const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              const parsed = JSON.parse(jsonMatch[0]);
+              headline = parsed.headline || `${asset.name} ${eventType.replace('_', ' ')} update`;
+              content = parsed.content || `Market moving news for ${asset.symbol}`;
+            } else {
+              headline = `${asset.name} ${eventType.replace('_', ' ')} update`;
+              content = `Market moving news for ${asset.symbol}`;
+            }
           } catch {
             headline = `${asset.name} ${eventType.replace('_', ' ')} update`;
             content = `Market moving news for ${asset.symbol}`;
@@ -146,11 +171,7 @@ Keep it professional and market-relevant. Return JSON with "headline" (max 80 ch
         content = `Market moving news for ${asset.symbol}`;
       }
 
-      // Schedule news to trigger in 15-45 minutes
-      const minutesUntilTrigger = Math.floor(Math.random() * 31) + 15; // 15-45 minutes
-      const scheduledFor = new Date(Date.now() + minutesUntilTrigger * 60000);
-
-      // Insert news event
+      // Insert news event with scheduled trigger time
       const { error: insertError } = await supabase
         .from('news_events')
         .insert({
@@ -168,18 +189,19 @@ Keep it professional and market-relevant. Return JSON with "headline" (max 80 ch
         return null;
       }
 
-      return { asset: asset.symbol, scheduledFor, impactType, impactStrength };
+      return { asset: asset.symbol, scheduledFor: scheduledFor.toISOString(), impactType, impactStrength };
     });
 
     const results = await Promise.all(newsPromises);
     const successCount = results.filter(r => r !== null).length;
 
-    console.log(`Successfully generated ${successCount} news events`);
+    console.log(`Successfully generated ${successCount} news events, scheduled for ${scheduledFor.toISOString()}`);
 
     return new Response(
       JSON.stringify({ 
         success: true, 
         generated: successCount,
+        scheduledFor: scheduledFor.toISOString(),
         assets: results.filter(r => r !== null)
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
