@@ -208,8 +208,39 @@ export const TradingChart = ({
     setIsLoadingData(true);
     const timeframeSeconds = getTimeframeSeconds(timeframe);
     const now = Math.floor(Date.now() / 1000);
-    // Fetch more 1m candles to have enough data for aggregation
-    const candlesNeeded = 100 * (timeframeSeconds / 60);
+    
+    // Calculate how many 1m candles we need based on timeframe
+    // For higher timeframes, we need more historical data
+    let candlesNeeded: number;
+    switch (timeframe) {
+      case '1s':
+        candlesNeeded = 60; // 1 hour of seconds
+        break;
+      case '1m':
+        candlesNeeded = 1440; // 24 hours
+        break;
+      case '5m':
+        candlesNeeded = 2880; // 10 days
+        break;
+      case '15m':
+        candlesNeeded = 4320; // 15 days
+        break;
+      case '1h':
+        candlesNeeded = 10080; // 7 days
+        break;
+      case '4h':
+        candlesNeeded = 20160; // 14 days
+        break;
+      case '1d':
+        candlesNeeded = 43200; // 30 days
+        break;
+      case '1w':
+        candlesNeeded = 129600; // 90 days
+        break;
+      default:
+        candlesNeeded = 1440;
+    }
+    
     const startTime = now - candlesNeeded * 60;
     try {
       // Load 1m candles from database
@@ -218,7 +249,7 @@ export const TradingChart = ({
         error
       } = await supabase.from('price_history').select('*').eq('asset_id', asset.id).gte('time', startTime).order('time', {
         ascending: true
-      });
+      }).limit(50000);
       if (error) throw error;
       if (existingData && existingData.length > 0) {
         const rawData = existingData.map(d => ({
@@ -694,7 +725,7 @@ export const TradingChart = ({
             ${asset?.current_price?.toFixed(2)}
           </span>
           <span className={`text-sm font-medium ${asset?.price_change_24h >= 0 ? 'text-[#0ECB81]' : 'text-[#F6465D]'}`}>
-            {asset?.price_change_24h >= 0 ? '+' : ''}{asset?.price_change_24h?.toFixed(2)}%
+            {asset?.price_change_24h >= 0 ? '+' : ''}{((asset?.price_change_24h || 0) * 100).toFixed(2)}%
           </span>
           
         </div>

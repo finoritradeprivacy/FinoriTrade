@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.send-feedback]
 verify_jwt = false
+
+[functions.generate-price-history]
+verify_jwt = false

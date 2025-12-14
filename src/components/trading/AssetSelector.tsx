@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -6,11 +6,13 @@ import { TrendingUp, TrendingDown, Bitcoin, LineChart, DollarSign, MoreVertical,
 import { supabase } from "@/integrations/supabase/client";
 import AssetsOverviewDialog from "./AssetsOverviewDialog";
 import { Challenges } from "./Challenges";
+
 interface AssetSelectorProps {
   assets: any[];
   selectedAsset: any;
   onSelectAsset: (asset: any) => void;
 }
+
 const AssetSelector = ({
   assets,
   selectedAsset,
@@ -20,13 +22,36 @@ const AssetSelector = ({
   const [showOverview, setShowOverview] = useState(false);
   const [pendingNews, setPendingNews] = useState<any[]>([]);
   const [, setTick] = useState(0);
+  const [assetCooldown, setAssetCooldown] = useState(0);
+  const lastAssetChangeRef = useRef<number>(0);
+
+  // Asset switching cooldown countdown
+  useEffect(() => {
+    if (assetCooldown <= 0) return;
+    const interval = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - lastAssetChangeRef.current) / 1000);
+      const remaining = Math.max(0, 10 - elapsed);
+      setAssetCooldown(remaining);
+    }, 100);
+    return () => clearInterval(interval);
+  }, [assetCooldown]);
+
+  const handleAssetSelect = (asset: any) => {
+    if (assetCooldown > 0) {
+      return; // Silently ignore during cooldown
+    }
+    lastAssetChangeRef.current = Date.now();
+    setAssetCooldown(10);
+    onSelectAsset(asset);
+  };
+
   useEffect(() => {
     const fetchPendingNews = async () => {
-      const {
-        data
-      } = await supabase.from("news_events").select("*, assets!inner(id, symbol, name)").not("scheduled_for", "is", null).order("scheduled_for", {
-        ascending: true
-      });
+      const { data } = await supabase
+        .from("news_events")
+        .select("*, assets!inner(id, symbol, name)")
+        .not("scheduled_for", "is", null)
+        .order("scheduled_for", { ascending: true });
       if (data) setPendingNews(data);
     };
     fetchPendingNews();
@@ -35,40 +60,36 @@ const AssetSelector = ({
     const interval = setInterval(() => {
       setTick(prev => prev + 1);
     }, 1000);
-    const channel = supabase.channel('news-updates-selector').on('postgres_changes', {
-      event: '*',
-      schema: 'public',
-      table: 'news_events'
-    }, () => {
-      fetchPendingNews();
-    }).subscribe();
+    
+    const channel = supabase
+      .channel('news-updates-selector')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'news_events'
+      }, () => {
+        fetchPendingNews();
+      })
+      .subscribe();
+      
     return () => {
       clearInterval(interval);
       supabase.removeChannel(channel);
     };
   }, []);
-  const filteredAssets = selectedCategory === 'news' || selectedCategory === 'challenges' ? [] : assets.filter(asset => asset.category === selectedCategory).slice(0, 5);
-  const categories = [{
-    id: 'crypto' as const,
-    label: 'Crypto',
-    icon: Bitcoin
-  }, {
-    id: 'stocks' as const,
-    label: 'Stocks',
-    icon: LineChart
-  }, {
-    id: 'forex' as const,
-    label: 'Forex',
-    icon: DollarSign
-  }, {
-    id: 'news' as const,
-    label: 'News',
-    icon: Newspaper
-  }, {
-    id: 'challenges' as const,
-    label: 'Challenges',
-    icon: Trophy
-  }];
+
+  const filteredAssets = selectedCategory === 'news' || selectedCategory === 'challenges' 
+    ? [] 
+    : assets.filter(asset => asset.category === selectedCategory).slice(0, 5);
+
+  const categories = [
+    { id: 'crypto' as const, label: 'Crypto', icon: Bitcoin },
+    { id: 'stocks' as const, label: 'Stocks', icon: LineChart },
+    { id: 'forex' as const, label: 'Forex', icon: DollarSign },
+    { id: 'news' as const, label: 'News', icon: Newspaper },
+    { id: 'challenges' as const, label: 'Challenges', icon: Trophy }
+  ];
+
   const getCountdown = (scheduledFor: string) => {
     const now = Date.now();
     const scheduled = new Date(scheduledFor).getTime();
@@ -82,32 +103,57 @@ const AssetSelector = ({
     }
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
-  return <>
+
+  return (
+    <>
       <Card className="p-4">
         <div className="flex items-center gap-2 mb-4">
           <div className="flex gap-2 flex-wrap flex-1">
-            {categories.map(({
-            id,
-            label,
-            icon: Icon
-          }) => <Button key={id} variant={selectedCategory === id ? "default" : "outline"} onClick={() => setSelectedCategory(id)} className="flex items-center gap-2">
+            {categories.map(({ id, label, icon: Icon }) => (
+              <Button 
+                key={id} 
+                variant={selectedCategory === id ? "default" : "outline"} 
+                onClick={() => setSelectedCategory(id)} 
+                className="flex items-center gap-2"
+              >
                 <Icon className="w-4 h-4" />
                 {label}
-              </Button>)}
+              </Button>
+            ))}
           </div>
           
-          {selectedCategory !== 'challenges' && selectedCategory !== 'news' && <Button variant="outline" size="icon" onClick={() => setShowOverview(true)} title="Assets Overview" className="flex-shrink-0 border-primary bg-primary">
+          {selectedCategory !== 'challenges' && selectedCategory !== 'news' && (
+            <Button 
+              variant="outline" 
+              size="icon" 
+              onClick={() => setShowOverview(true)} 
+              title="Assets Overview" 
+              className="flex-shrink-0 border-primary bg-primary"
+            >
               <MoreVertical className="w-4 h-4 text-black stroke-[3]" />
-            </Button>}
+            </Button>
+          )}
         </div>
       
-        {selectedCategory === 'challenges' ? <Challenges /> : <div className="flex gap-3 overflow-x-auto pb-2">
-            {selectedCategory === 'news' ? pendingNews.length === 0 ? <p className="text-sm text-muted-foreground py-4 w-full text-center">
+        {selectedCategory === 'challenges' ? (
+          <Challenges />
+        ) : (
+          <div className="flex gap-3 overflow-x-auto pb-2">
+            {selectedCategory === 'news' ? (
+              pendingNews.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 w-full text-center">
                   No pending news events
-                </p> : pendingNews.map(news => <button key={news.id} onClick={() => {
-          const asset = assets.find(a => a.id === news.asset_id);
-          if (asset) onSelectAsset(asset);
-        }} className="flex-shrink-0 px-4 py-3 rounded-lg transition-all bg-primary/5 border-2 border-primary/20 hover:bg-primary/10 animate-pulse">
+                </p>
+              ) : (
+                pendingNews.map(news => (
+                  <button 
+                    key={news.id} 
+                    onClick={() => {
+                      const asset = assets.find(a => a.id === news.asset_id);
+                      if (asset) handleAssetSelect(asset);
+                    }} 
+                    className="flex-shrink-0 px-4 py-3 rounded-lg transition-all bg-primary/5 border-2 border-primary/20 hover:bg-primary/10 animate-pulse"
+                  >
                     <div className="flex items-center gap-3">
                       <Newspaper className="w-5 h-5 text-primary" />
                       <div>
@@ -128,45 +174,84 @@ const AssetSelector = ({
                         </p>
                       </div>
                     </div>
-                  </button>) : filteredAssets.map(asset => {
-          const isPositive = Number(asset.price_change_24h) >= 0;
-          const isSelected = selectedAsset?.id === asset.id;
-          return <button key={asset.id} onClick={() => onSelectAsset(asset)} className={cn("flex-shrink-0 px-4 py-3 rounded-lg transition-all", "hover:scale-105 active:scale-95", isSelected ? "bg-primary/20 border-2 border-primary" : "bg-secondary/50 border border-border hover:bg-secondary")}>
-                    <div className="flex items-center gap-3">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-lg">{asset.symbol}</span>
-                          {isPositive ? <TrendingUp className="w-4 h-4 text-success" /> : <TrendingDown className="w-4 h-4 text-destructive" />}
-                        </div>
-                        <p className="text-xs text-muted-foreground text-left">
-                          {asset.name}
-                        </p>
-                      </div>
-                      
-                      <div className="text-right">
-                        <p className="font-mono font-semibold">
-                          ${Number(asset.current_price).toLocaleString('en-US', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: asset.current_price < 1 ? 6 : 2
-                  })}
-                        </p>
-                        <div className="flex items-center justify-end gap-2">
-                          <p className={cn("text-xs font-medium", isPositive ? "text-success" : "text-destructive")}>
-                            {isPositive ? "+" : ""}
-                            {(Number(asset.price_change_24h) * 100).toFixed(2)}%
+                  </button>
+                ))
+              )
+            ) : (
+              filteredAssets.map(asset => {
+                const isPositive = Number(asset.price_change_24h) >= 0;
+                const isSelected = selectedAsset?.id === asset.id;
+                const isDisabled = assetCooldown > 0 && !isSelected;
+                
+                return (
+                  <div key={asset.id} className="relative group">
+                    <button 
+                      onClick={() => handleAssetSelect(asset)} 
+                      disabled={isDisabled}
+                      className={cn(
+                        "flex-shrink-0 px-4 py-3 rounded-lg transition-all", 
+                        isDisabled ? "opacity-50 cursor-not-allowed" : "hover:scale-105 active:scale-95", 
+                        isSelected ? "bg-primary/20 border-2 border-primary" : "bg-secondary/50 border border-border hover:bg-secondary"
+                      )}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-lg">{asset.symbol}</span>
+                            {isPositive ? (
+                              <TrendingUp className="w-4 h-4 text-success" />
+                            ) : (
+                              <TrendingDown className="w-4 h-4 text-destructive" />
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground text-left">
+                            {asset.name}
                           </p>
-                          {asset.category === 'stocks' && asset.dividend_yield > 0 && <span className="text-xs px-1.5 py-0.5 rounded bg-green-500/20 text-green-400 font-medium">
-                              {(asset.dividend_yield * 100).toFixed(1)}% DIV
-                            </span>}
+                        </div>
+                        
+                        <div className="text-right">
+                          <p className="font-mono font-semibold">
+                            ${Number(asset.current_price).toLocaleString('en-US', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: asset.current_price < 1 ? 6 : 2
+                            })}
+                          </p>
+                          <div className="flex items-center justify-end gap-2">
+                            <p className={cn("text-xs font-medium", isPositive ? "text-success" : "text-destructive")}>
+                              {isPositive ? "+" : ""}
+                              {(Number(asset.price_change_24h) * 100).toFixed(2)}%
+                            </p>
+                            {asset.category === 'stocks' && asset.dividend_yield > 0 && (
+                              <span className="text-xs px-1.5 py-0.5 rounded bg-green-500/20 text-green-400 font-medium">
+                                {(asset.dividend_yield * 100).toFixed(1)}% DIV
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </button>;
-        })}
-          </div>}
+                    </button>
+                    {isDisabled && (
+                      <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-destructive text-destructive-foreground text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                        Cooldown: {assetCooldown}s
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
       </Card>
 
-      <AssetsOverviewDialog open={showOverview} onOpenChange={setShowOverview} assets={assets} selectedAsset={selectedAsset} onSelectAsset={onSelectAsset} />
-    </>;
+      <AssetsOverviewDialog 
+        open={showOverview} 
+        onOpenChange={setShowOverview} 
+        assets={assets} 
+        selectedAsset={selectedAsset} 
+        onSelectAsset={onSelectAsset} 
+      />
+    </>
+  );
 };
+
 export default AssetSelector;
