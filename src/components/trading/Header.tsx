@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { UserNotifications } from "./UserNotifications";
+import { FeedbackDialog } from "./FeedbackDialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,6 +20,7 @@ const Header = () => {
   const navigate = useNavigate();
   const [balance, setBalance] = useState(0);
   const [profile, setProfile] = useState<any>(null);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -128,7 +130,7 @@ const Header = () => {
                   FAQ
                 </DropdownMenuItem>
                 <DropdownMenuItem 
-                  onClick={() => window.location.href = 'mailto:finoritrade.privacy@gmail.com'}
+                  onClick={() => setFeedbackOpen(true)}
                   className="cursor-pointer"
                 >
                   <MessageSquare className="w-4 h-4 mr-2" />
@@ -136,6 +138,8 @@ const Header = () => {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+            
+            <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
 
             <Button
               variant="ghost"

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -485,9 +485,9 @@ const Auth = () => {
           </p>
 
           <div className="flex gap-4 mt-4">
-            <a href="/about" className="text-sm text-muted-foreground hover:text-primary transition-colors">About Us</a>
-            <a href="/faq" className="text-sm text-muted-foreground hover:text-primary transition-colors">FAQ</a>
-            <a href="/contacts" className="text-sm text-muted-foreground hover:text-primary transition-colors">Contacts</a>
+            <Link to="/about" className="text-sm text-muted-foreground hover:text-primary transition-colors">About Us</Link>
+            <Link to="/faq" className="text-sm text-muted-foreground hover:text-primary transition-colors">FAQ</Link>
+            <Link to="/contacts" className="text-sm text-muted-foreground hover:text-primary transition-colors">Contacts</Link>
           </div>
         </div>
 
