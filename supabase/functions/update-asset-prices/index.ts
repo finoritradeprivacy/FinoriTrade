@@ -153,15 +153,22 @@ async function performPriceUpdate(supabase: any, updateIndex: number, totalUpdat
 
   // OPTIMIZED: Batch fetch existing candles for current minute
   const candleTime = Math.floor(Date.now() / 1000 / 60) * 60;
+  const prevCandleTime = candleTime - 60; // Previous minute
+  
   const { data: existingCandles } = await supabase
     .from('price_history')
-    .select('id, asset_id, open, high, low, close')
+    .select('id, asset_id, open, high, low, close, time')
     .in('asset_id', assetIds)
-    .eq('time', candleTime);
+    .in('time', [candleTime, prevCandleTime]);
 
   const candleMap = new Map<string, any>();
+  const prevCandleMap = new Map<string, any>();
   for (const candle of existingCandles || []) {
-    candleMap.set(candle.asset_id, candle);
+    if (Number(candle.time) === candleTime) {
+      candleMap.set(candle.asset_id, candle);
+    } else if (Number(candle.time) === prevCandleTime) {
+      prevCandleMap.set(candle.asset_id, candle);
+    }
   }
 
   // Prepare batch updates
@@ -215,13 +222,16 @@ async function performPriceUpdate(supabase: any, updateIndex: number, totalUpdat
         close: newPrice,
       });
     } else {
-      const open = currentPrice;
+      // For new candle, use previous candle's close as open for continuity
+      const prevCandle = prevCandleMap.get(asset.id);
+      const openPrice = prevCandle ? Number(prevCandle.close) : currentPrice;
+      
       candleInserts.push({
         asset_id: asset.id,
         time: candleTime,
-        open,
-        high: Math.max(open, newPrice),
-        low: Math.min(open, newPrice),
+        open: openPrice,
+        high: Math.max(openPrice, newPrice),
+        low: Math.min(openPrice, newPrice),
         close: newPrice,
       });
     }
