@@ -4,7 +4,7 @@ project_id = "agsgsdjobfpodjneknpm"
 verify_jwt = false
 
 [functions.generate-news]
-verify_jwt = true
+verify_jwt = false
 
 [functions.manage-daily-challenges]
 verify_jwt = true
