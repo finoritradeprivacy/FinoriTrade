@@ -198,7 +198,7 @@ serve(async (req: Request): Promise<Response> => {
       // Create the actual user account
       const { data: authData, error: authError } = await supabase.auth.admin.createUser({
         email: pending.email,
-        password: pending.password,
+        password: pending.password_hash,
         email_confirm: true,
         user_metadata: {
           nickname: pending.nickname,
