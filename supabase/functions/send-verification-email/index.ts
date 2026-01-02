@@ -53,16 +53,17 @@ serve(async (req: Request): Promise<Response> => {
         });
       }
 
-      // Check if user already exists
-      const { data: existingUsers } = await supabase.auth.admin.listUsers();
-      const userExists = existingUsers?.users?.some(u => u.email === email);
-      
-      if (userExists) {
-        return new Response(JSON.stringify({ error: "An account with this email already exists" }), {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
+      const { data: userByEmail } =
+       await supabase.auth.admin.getUserByEmail(email);
+
+      if (userByEmail) {
+       return new Response(JSON.stringify({
+        error: "An account with this email already exists"
+       }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+   } 
 
       // Generate 6-digit OTP code
       const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
@@ -197,7 +198,7 @@ serve(async (req: Request): Promise<Response> => {
       // Create the actual user account
       const { data: authData, error: authError } = await supabase.auth.admin.createUser({
         email: pending.email,
-        password: pending.password_hash,
+        password: pending.password,
         email_confirm: true,
         user_metadata: {
           nickname: pending.nickname,
