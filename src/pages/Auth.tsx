@@ -1,16 +1,22 @@
 
 import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { TrendingUp, Shield, Zap, Eye, EyeOff, Check, X } from "lucide-react";
+import {
+  InputOTP,
+  InputOTPGroup,
+  InputOTPSlot,
+} from "@/components/ui/input-otp";
 
 export default function Auth() {
-  const { signIn, signUp } = useAuth();
+  const { signIn } = useAuth();
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -25,6 +31,10 @@ export default function Auth() {
   const [registerEmail, setRegisterEmail] = useState("");
   const [registerPassword, setRegisterPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  
+  // Verification State
+  const [verificationStep, setVerificationStep] = useState(false);
+  const [otp, setOtp] = useState("");
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,11 +72,58 @@ export default function Auth() {
 
     setIsLoading(true);
     try {
-      const { error } = await signUp(registerEmail, registerPassword, registerNickname);
+      const { data, error } = await supabase.functions.invoke('send-verification-email', {
+        body: {
+          action: 'send',
+          email: registerEmail,
+          nickname: registerNickname,
+          password: registerPassword
+        }
+      });
+
       if (error) throw error;
-      toast.success("Registration successful! Please check your email.");
+      if (data?.error) throw new Error(data.error);
+
+      setVerificationStep(true);
+      toast.success("Verification code sent! Please check your email.");
     } catch (error: any) {
+      console.error("Registration error:", error);
       toast.error(error.message || "Failed to register");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleVerify = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!otp || otp.length !== 6) {
+      toast.error("Please enter a valid 6-digit code");
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('send-verification-email', {
+        body: {
+          action: 'verify',
+          email: registerEmail,
+          code: otp
+        }
+      });
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      toast.success("Email verified successfully! Logging in...");
+      
+      // Auto login after verification
+      const { error: loginError } = await signIn(registerEmail, registerPassword);
+      if (loginError) throw loginError;
+      
+      navigate("/trade");
+    } catch (error: any) {
+      console.error("Verification error:", error);
+      toast.error(error.message || "Failed to verify email");
     } finally {
       setIsLoading(false);
     }
@@ -139,13 +196,13 @@ export default function Auth() {
         </div>
 
         <div className="text-sm text-gray-500 space-y-4">
-          <p>By using this platform, I agree to <a href="#" className="text-purple-500 hover:underline">this document</a></p>
-          <div className="flex gap-4">
-            <a href="#" className="hover:text-gray-300">About Us</a>
-            <a href="#" className="hover:text-gray-300">FAQ</a>
-            <a href="#" className="hover:text-gray-300">Contacts</a>
-          </div>
-        </div>
+                <p>By using this platform, I agree to <a href="https://docs.google.com/document/d/1pDJrRq4CcQAN18keSsrTexdAhXDmeNv14ohOg4wjy8E/edit?usp=sharing" target="_blank" rel="noopener noreferrer" className="text-purple-500 hover:underline">this document</a></p>
+                <div className="flex gap-4">
+                  <Link to="/about" className="hover:text-gray-300">About Us</Link>
+                  <Link to="/faq" className="hover:text-gray-300">FAQ</Link>
+                  <Link to="/contacts" className="hover:text-gray-300">Contacts</Link>
+                </div>
+              </div>
       </div>
 
       {/* Right Side - Auth Form */}
@@ -202,102 +259,140 @@ export default function Auth() {
             </TabsContent>
 
             <TabsContent value="register">
-              <form onSubmit={handleRegister} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="nickname">Nickname</Label>
-                  <Input 
-                    id="nickname" 
-                    placeholder="TradingPro" 
-                    className="bg-gray-900 border-gray-800"
-                    value={registerNickname}
-                    onChange={(e) => setRegisterNickname(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="register-email">Email</Label>
-                  <Input 
-                    id="register-email" 
-                    type="email" 
-                    placeholder="your@email.com" 
-                    className="bg-gray-900 border-gray-800"
-                    value={registerEmail}
-                    onChange={(e) => setRegisterEmail(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="register-password">Password</Label>
-                  <div className="relative">
-                    <Input 
-                      id="register-password" 
-                      type={showPassword ? "text" : "password"} 
-                      placeholder="••••••••" 
-                      className="bg-gray-900 border-gray-800 pr-10"
-                      value={registerPassword}
-                      onChange={(e) => setRegisterPassword(e.target.value)}
-                    />
-                     <button 
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
-                    >
-                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
+              {verificationStep ? (
+                <form onSubmit={handleVerify} className="space-y-6 py-4">
+                  <div className="space-y-2 text-center">
+                    <h3 className="text-lg font-medium text-white">Check Your Email</h3>
+                    <p className="text-sm text-gray-400">
+                      We've sent a verification code to <span className="text-purple-400">{registerEmail}</span>
+                    </p>
                   </div>
-                </div>
+                  
+                  <div className="flex justify-center py-4">
+                    <InputOTP maxLength={6} value={otp} onChange={(value) => setOtp(value)}>
+                      <InputOTPGroup className="gap-2">
+                        <InputOTPSlot index={0} className="bg-gray-900 border-gray-800 text-white" />
+                        <InputOTPSlot index={1} className="bg-gray-900 border-gray-800 text-white" />
+                        <InputOTPSlot index={2} className="bg-gray-900 border-gray-800 text-white" />
+                        <InputOTPSlot index={3} className="bg-gray-900 border-gray-800 text-white" />
+                        <InputOTPSlot index={4} className="bg-gray-900 border-gray-800 text-white" />
+                        <InputOTPSlot index={5} className="bg-gray-900 border-gray-800 text-white" />
+                      </InputOTPGroup>
+                    </InputOTP>
+                  </div>
 
-                {/* Password Strength Meter */}
-                <div className="space-y-2">
-                  <div className="flex justify-between text-xs text-gray-400">
-                    <span>Password strength:</span>
-                    <span className={strength.text === "Strong" ? "text-green-500" : strength.text === "Medium" ? "text-yellow-500" : "text-red-500"}>
-                      {strength.text}
-                    </span>
-                  </div>
-                  <div className="h-1 w-full bg-gray-800 rounded-full overflow-hidden">
-                    <div 
-                      className={`h-full transition-all duration-300 ${strength.color}`} 
-                      style={{ width: strength.width }}
-                    ></div>
-                  </div>
-                </div>
-
-                <div className="text-xs space-y-1 text-gray-400">
-                  <p className="mb-2">Password must contain:</p>
-                  <div className="grid grid-cols-2 gap-1">
-                    {passwordRequirements.map((req, index) => (
-                      <div key={index} className={`flex items-center gap-1 ${req.valid ? "text-green-500" : "text-gray-500"}`}>
-                        {req.valid ? <Check size={12} /> : <X size={12} />}
-                        <span>{req.label}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="confirm-password">Confirm Password</Label>
-                  <div className="relative">
-                    <Input 
-                      id="confirm-password" 
-                      type={showConfirmPassword ? "text" : "password"} 
-                      placeholder="••••••••" 
-                      className="bg-gray-900 border-gray-800 pr-10"
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                    />
+                  <Button type="submit" className="w-full bg-purple-600 hover:bg-purple-700 text-white" disabled={isLoading}>
+                    {isLoading ? "Verifying..." : "Verify & Sign In"}
+                  </Button>
+                  
+                  <div className="text-center">
                     <button 
-                      type="button"
-                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                      type="button" 
+                      onClick={() => setVerificationStep(false)}
+                      className="text-sm text-gray-400 hover:text-white"
                     >
-                      {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      Back to Registration
                     </button>
                   </div>
-                </div>
+                </form>
+              ) : (
+                <form onSubmit={handleRegister} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="nickname">Nickname</Label>
+                    <Input 
+                      id="nickname" 
+                      placeholder="TradingPro" 
+                      className="bg-gray-900 border-gray-800"
+                      value={registerNickname}
+                      onChange={(e) => setRegisterNickname(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="register-email">Email</Label>
+                    <Input 
+                      id="register-email" 
+                      type="email" 
+                      placeholder="your@email.com" 
+                      className="bg-gray-900 border-gray-800"
+                      value={registerEmail}
+                      onChange={(e) => setRegisterEmail(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="register-password">Password</Label>
+                    <div className="relative">
+                      <Input 
+                        id="register-password" 
+                        type={showPassword ? "text" : "password"} 
+                        placeholder="••••••••" 
+                        className="bg-gray-900 border-gray-800 pr-10"
+                        value={registerPassword}
+                        onChange={(e) => setRegisterPassword(e.target.value)}
+                      />
+                       <button 
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                      >
+                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
 
-                <Button type="submit" className="w-full bg-purple-600 hover:bg-purple-700 text-white" disabled={isLoading}>
-                  {isLoading ? "Creating Account..." : "Sign Up"}
-                </Button>
-              </form>
+                  {/* Password Strength Meter */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-xs text-gray-400">
+                      <span>Password strength:</span>
+                      <span className={strength.text === "Strong" ? "text-green-500" : strength.text === "Medium" ? "text-yellow-500" : "text-red-500"}>
+                        {strength.text}
+                      </span>
+                    </div>
+                    <div className="h-1 w-full bg-gray-800 rounded-full overflow-hidden">
+                      <div 
+                        className={`h-full transition-all duration-300 ${strength.color}`} 
+                        style={{ width: strength.width }}
+                      ></div>
+                    </div>
+                  </div>
+
+                  <div className="text-xs space-y-1 text-gray-400">
+                    <p className="mb-2">Password must contain:</p>
+                    <div className="grid grid-cols-2 gap-1">
+                      {passwordRequirements.map((req, index) => (
+                        <div key={index} className={`flex items-center gap-1 ${req.valid ? "text-green-500" : "text-gray-500"}`}>
+                          {req.valid ? <Check size={12} /> : <X size={12} />}
+                          <span>{req.label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="confirm-password">Confirm Password</Label>
+                    <div className="relative">
+                      <Input 
+                        id="confirm-password" 
+                        type={showConfirmPassword ? "text" : "password"} 
+                        placeholder="••••••••" 
+                        className="bg-gray-900 border-gray-800 pr-10"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                      />
+                      <button 
+                        type="button"
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                      >
+                        {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <Button type="submit" className="w-full bg-purple-600 hover:bg-purple-700 text-white" disabled={isLoading}>
+                    {isLoading ? "Creating Account..." : "Sign Up"}
+                  </Button>
+                </form>
+              )}
             </TabsContent>
           </Tabs>
         </div>
