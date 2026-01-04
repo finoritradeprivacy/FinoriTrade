@@ -42,7 +42,7 @@ serve(async (req: Request): Promise<Response> => {
     console.log(`Processing action: ${action}`, JSON.stringify(body));
 
     if (action === "send") {
-      const email = body.email;
+      const email = body.email ? body.email.toLowerCase().trim() : null;
       const nickname = body.nickname;
       const password = body.password;
 
@@ -57,13 +57,18 @@ serve(async (req: Request): Promise<Response> => {
         db: { schema: 'auth' }
       });
 
-      const { data: existingUser } = await supabaseAdmin
+      const { data: existingUser, error: checkError } = await supabaseAdmin
         .from("users")
         .select("id")
         .eq("email", email)
         .maybeSingle();
 
+      if (checkError) {
+        console.error("Error checking existing user:", checkError);
+      }
+
       if (existingUser) {
+        console.log("User already exists:", email);
         return new Response(JSON.stringify({
           error: "An account with this email already exists"
         }), {
@@ -172,8 +177,8 @@ serve(async (req: Request): Promise<Response> => {
       });
 
     } else if (action === "verify") {
-      const email = body.email;
-      const code = body.code;
+      const email = body.email ? body.email.toLowerCase().trim() : null;
+      const code = body.code ? body.code.trim() : null;
 
       if (!email || !code) {
         return new Response(JSON.stringify({ error: "Missing email or code" }), {
@@ -192,10 +197,13 @@ serve(async (req: Request): Promise<Response> => {
         .gt("expires_at", new Date().toISOString())
         .order("created_at", { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
       if (fetchError || !pending) {
         console.error("Verification failed:", fetchError);
+        if (!pending) {
+            console.error(`No pending verification found for email: ${email} and code: ${code}`);
+        }
         return new Response(JSON.stringify({ error: "Invalid or expired verification code" }), {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -214,6 +222,15 @@ serve(async (req: Request): Promise<Response> => {
 
       if (authError) {
         console.error("Error creating user:", authError);
+        
+        // Handle "User already registered" error gracefully
+        if (authError.message?.includes("already been registered") || authError.status === 422) {
+             return new Response(JSON.stringify({ error: "An account with this email already exists. Please log in." }), {
+            status: 409, // Conflict
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
         return new Response(JSON.stringify({ error: authError.message }), {
           status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
