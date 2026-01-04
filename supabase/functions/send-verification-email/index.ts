@@ -53,17 +53,24 @@ serve(async (req: Request): Promise<Response> => {
         });
       }
 
-      const { data: userByEmail } =
-       await supabase.auth.admin.getUserByEmail(email);
-
-      if (userByEmail) {
-       return new Response(JSON.stringify({
-        error: "An account with this email already exists"
-       }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+        db: { schema: 'auth' }
       });
-   } 
+
+      const { data: existingUser } = await supabaseAdmin
+        .from("users")
+        .select("id")
+        .eq("email", email)
+        .maybeSingle();
+
+      if (existingUser) {
+        return new Response(JSON.stringify({
+          error: "An account with this email already exists"
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } 
 
       // Generate 6-digit OTP code
       const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
