@@ -85,6 +85,20 @@ const OrderForm = ({ asset, onTradeSuccess }: OrderFormProps) => {
       const orderQuantity = validationResult.data.quantity;
 
       if (orderType === "market") {
+        if (side === 'sell') {
+          const { data: portfolio, error: portfolioError } = await supabase
+            .from('portfolios')
+            .select('quantity')
+            .eq('user_id', user.id)
+            .eq('asset_id', asset.id)
+            .single();
+
+          if (portfolioError || !portfolio || portfolio.quantity < orderQuantity) {
+            toast.error("You don't own enough of this asset to sell");
+            setLoading(false);
+            return;
+          }
+        }
         // Use atomic database function for market orders
         const { data: orderId, error: rpcError } = await supabase.rpc('process_market_order', {
           p_user_id: user.id,

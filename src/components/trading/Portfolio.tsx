@@ -28,6 +28,10 @@ const Portfolio = ({ refreshTrigger }: { refreshTrigger: number }) => {
 
     fetchPortfolio();
 
+    const pollingInterval = setInterval(() => {
+      fetchPortfolio();
+    }, 5000);
+
     // Subscribe to portfolio changes
     const portfolioChannel = supabase
       .channel('portfolio-changes')
@@ -62,6 +66,7 @@ const Portfolio = ({ refreshTrigger }: { refreshTrigger: number }) => {
       .subscribe();
 
     return () => {
+      clearInterval(pollingInterval);
       supabase.removeChannel(portfolioChannel);
       supabase.removeChannel(assetsChannel);
     };

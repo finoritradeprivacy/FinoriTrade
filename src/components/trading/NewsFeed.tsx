@@ -40,6 +40,10 @@ const NewsFeed = () => {
       updateNextEventCountdown();
     }, 1000);
 
+    const newsRefreshInterval = setInterval(() => {
+      fetchNews();
+    }, 15000);
+
     const channel = supabase
       .channel('news-updates')
       .on(
@@ -68,6 +72,7 @@ const NewsFeed = () => {
 
     return () => {
       clearInterval(interval);
+      clearInterval(newsRefreshInterval);
       supabase.removeChannel(channel);
     };
   }, []);
