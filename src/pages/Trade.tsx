@@ -22,6 +22,11 @@ const Trade = () => {
   const navigate = useNavigate();
   const [selectedAsset, setSelectedAsset] = useState<any>(null);
   const [assets, setAssets] = useState<any[]>([]);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  const handleTradeSuccess = () => {
+    setRefreshTrigger(prev => prev + 1);
+  };
   
   // Enable automatic price updates every 10 seconds
   usePriceUpdates();
@@ -129,16 +134,16 @@ const Trade = () => {
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <OpenOrders />
-              <TradeHistory />
+              <OpenOrders refreshTrigger={refreshTrigger} />
+              <TradeHistory refreshTrigger={refreshTrigger} />
             </div>
           </div>
 
           <div className="lg:col-span-3 space-y-4">
             <PlayerProfile />
             <PriceAlerts assets={assets} selectedAsset={selectedAsset} />
-            <OrderForm asset={selectedAsset} />
-            <Portfolio />
+            <OrderForm asset={selectedAsset} onTradeSuccess={handleTradeSuccess} />
+            <Portfolio refreshTrigger={refreshTrigger} />
           </div>
         </div>
       </div>

@@ -30,9 +30,10 @@ const orderSchema = z.object({
 
 interface OrderFormProps {
   asset: any;
+  onTradeSuccess: () => void;
 }
 
-const OrderForm = ({ asset }: OrderFormProps) => {
+const OrderForm = ({ asset, onTradeSuccess }: OrderFormProps) => {
   const { user, isEmailVerified, isAdmin, resendVerificationEmail } = useAuth();
   const [orderType, setOrderType] = useState("market");
   const [orderSubtype, setOrderSubtype] = useState("standard");
@@ -106,8 +107,24 @@ const OrderForm = ({ asset }: OrderFormProps) => {
         }
 
         toast.success(`${side === "buy" ? "Bought" : "Sold"} ${orderQuantity} ${asset.symbol}`);
+        onTradeSuccess();
       } else {
         // For limit/stop orders, insert directly
+        if (side === 'sell') {
+          const { data: portfolio, error: portfolioError } = await supabase
+            .from('portfolios')
+            .select('quantity')
+            .eq('user_id', user.id)
+            .eq('asset_id', asset.id)
+            .single();
+
+          if (portfolioError || !portfolio || portfolio.quantity < orderQuantity) {
+            toast.error("You don't own enough of this asset to sell");
+            setLoading(false);
+            return;
+          }
+        }
+        
         const { error: orderError } = await supabase
           .from("orders")
           .insert({
@@ -126,6 +143,7 @@ const OrderForm = ({ asset }: OrderFormProps) => {
 
         const orderTypeLabel = orderType === "stop" ? "Stop" : orderSubtype === "ioc" ? "IOC" : orderSubtype === "fok" ? "FOK" : "Limit";
         toast.success(`${orderTypeLabel} order placed successfully`);
+        onTradeSuccess();
       }
 
       setQuantity("");

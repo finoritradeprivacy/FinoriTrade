@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
-const TradeHistory = () => {
+const TradeHistory = ({ refreshTrigger }: { refreshTrigger: number }) => {
   const { user } = useAuth();
   const [trades, setTrades] = useState<any[]>([]);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -50,7 +50,7 @@ const TradeHistory = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user]);
+  }, [user, refreshTrigger]);
 
   const displayedTrades = isExpanded ? trades : trades.slice(0, 3);
 

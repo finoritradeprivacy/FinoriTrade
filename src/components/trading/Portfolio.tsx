@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { TrendingUp, TrendingDown } from "lucide-react";
 
-const Portfolio = () => {
+const Portfolio = ({ refreshTrigger }: { refreshTrigger: number }) => {
   const { user } = useAuth();
   const [portfolio, setPortfolio] = useState<any[]>([]);
 
@@ -65,7 +65,7 @@ const Portfolio = () => {
       supabase.removeChannel(portfolioChannel);
       supabase.removeChannel(assetsChannel);
     };
-  }, [user]);
+  }, [user, refreshTrigger]);
 
   return (
     <Card className="p-4">

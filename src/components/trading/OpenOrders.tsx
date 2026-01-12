@@ -6,7 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { X } from "lucide-react";
 import { toast } from "sonner";
 
-const OpenOrders = () => {
+const OpenOrders = ({ refreshTrigger }: { refreshTrigger: number }) => {
   const { user } = useAuth();
   const [orders, setOrders] = useState<any[]>([]);
 
@@ -50,7 +50,7 @@ const OpenOrders = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user]);
+  }, [user, refreshTrigger]);
 
   const handleCancelOrder = async (orderId: string) => {
     const { error } = await supabase
