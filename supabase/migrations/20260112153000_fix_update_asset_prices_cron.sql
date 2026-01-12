@@ -8,14 +8,8 @@ WHERE NOT EXISTS (
   SELECT 1 FROM public.system_config WHERE key = 'cron_secret'
 );
 
--- Remove any existing scheduled job with the same name
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'update-asset-prices') THEN
-    DELETE FROM cron.job WHERE jobname = 'update-asset-prices';
-  END IF;
-END;
-$$;
+-- Note: On managed Supabase, direct access to cron.job may be restricted.
+-- We avoid deleting existing jobs and simply schedule the desired job.
 
 -- Schedule the job to invoke the Edge Function every minute with proper headers
 SELECT cron.schedule(
