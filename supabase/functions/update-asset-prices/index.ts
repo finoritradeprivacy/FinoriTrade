@@ -239,27 +239,21 @@ async function performPriceUpdate(supabase: any, updateIndex: number, totalUpdat
 
   // OPTIMIZED: Execute batch updates using Promise.all for parallel execution
   if (assetUpdates.length > 0) {
-    // Use individual updates in parallel (upsert requires all NOT NULL columns)
-    const updatePromises = assetUpdates.map(update => 
-      supabase
-        .from('assets')
-        .update({
-          current_price: update.current_price,
-          price_change_24h: update.price_change_24h,
-          updated_at: update.updated_at,
-        })
-        .eq('id', update.id)
-    );
-    
-    await Promise.all(updatePromises);
+    const { error: assetUpdateError } = await supabase
+      .from('assets')
+      .upsert(assetUpdates, { onConflict: 'id' });
+    if (assetUpdateError) {
+      console.error('Batch asset update error:', assetUpdateError);
+    }
   }
 
-  // Update existing candles in batch
-  for (const update of candleUpdates) {
-    await supabase
+  if (candleUpdates.length > 0) {
+    const { error: candleUpdateError } = await supabase
       .from('price_history')
-      .update({ high: update.high, low: update.low, close: update.close })
-      .eq('id', update.id);
+      .upsert(candleUpdates, { onConflict: 'id' });
+    if (candleUpdateError) {
+      console.error('Batch candle update error:', candleUpdateError);
+    }
   }
 
   // Insert new candles using upsert to handle duplicates
@@ -584,11 +578,11 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 // Background task that runs 59 additional updates (at 1s, 2s, ... 59s)
 async function runDelayedUpdates(supabase: any) {
   try {
-    for (let i = 1; i < 60; i++) {
-      await sleep(1000);
-      await performPriceUpdate(supabase, i, 60);
+    for (let i = 1; i < 6; i++) {
+      await sleep(10000);
+      await performPriceUpdate(supabase, i, 6);
     }
-    console.log('All 60 price updates completed for this cycle');
+    console.log('All 6 price updates completed for this cycle');
   } catch (error) {
     console.error('Error in delayed updates:', error);
   }
@@ -600,7 +594,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    console.log('Starting price update cycle (60 updates over 60 seconds - 1 per second)...');
+    console.log('Starting price update cycle (6 updates over 60 seconds - 1 per 10s)...');
     
     // Verify cron signature using env or DB fallback
     const signature = req.headers.get('X-Cron-Signature') || '';
@@ -642,20 +636,16 @@ Deno.serve(async (req) => {
     }
 
     // Run first update immediately
-    const result = await performPriceUpdate(supabase, 0, 60);
+    const result = await performPriceUpdate(supabase, 0, 6);
 
     // Schedule the remaining 59 updates as background tasks
     // Using EdgeRuntime.waitUntil to keep the function alive
     (globalThis as any).EdgeRuntime?.waitUntil?.(runDelayedUpdates(supabase));
 
-    console.log('First update done, 59 background updates scheduled (1 per second)');
+    console.log('First update done, 5 background updates scheduled (1 per 10s)');
 
     return new Response(
-      JSON.stringify({ 
-        success: true, 
-        message: '60 updates scheduled over 60 seconds (1 per second)',
-        firstUpdate: result
-      }),
+      JSON.stringify({ success: true, message: '6 updates scheduled over 60 seconds (1 per 10s)', firstUpdate: result }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
