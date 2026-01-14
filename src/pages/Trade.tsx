@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase } from "@/integrations/supabase/client";
-import { usePriceUpdates } from "@/hooks/usePriceUpdates";
+import { useSimTrade } from "@/contexts/SimTradeContext";
 import Header from "@/components/trading/Header";
 import AssetSelector from "@/components/trading/AssetSelector";
 import { TradingChart } from "@/components/trading/TradingChart";
@@ -17,85 +16,52 @@ import { PriceAlerts } from "@/components/trading/PriceAlerts";
 import { ConnectionStatus } from "@/components/trading/ConnectionStatus";
 import MarketTicker from "@/components/trading/MarketTicker";
 
+interface AssetLite {
+  id: string;
+  symbol: string;
+  name: string;
+  current_price: number;
+  price_change_24h: number | null;
+  category: "crypto" | "stocks" | "forex";
+  dividend_yield?: number;
+}
+
 const Trade = () => {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
-  const [selectedAsset, setSelectedAsset] = useState<any>(null);
-  const [assets, setAssets] = useState<any[]>([]);
+  const { prices } = useSimTrade();
+  const [selectedAsset, setSelectedAsset] = useState<AssetLite | null>(null);
+  const [assets, setAssets] = useState<AssetLite[]>([]);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const handleTradeSuccess = () => {
     setRefreshTrigger(prev => prev + 1);
   };
   
-  // Enable automatic price updates every 10 seconds
-  usePriceUpdates();
-
   useEffect(() => {
     if (!loading && !user) {
       navigate("/auth");
     }
   }, [user, loading, navigate]);
 
-  // Track played time every minute
   useEffect(() => {
-    if (!user) return;
-
-    const updatePlayedTime = async () => {
-      // Use raw SQL call since RPC types may not be updated yet
-      await supabase.from("profiles").update({
-        last_active_at: new Date().toISOString()
-      }).eq("id", user.id);
-      
-      // Increment played time using raw query
-      await supabase.rpc('increment_played_time' as any, { p_user_id: user.id, p_seconds: 60 });
-    };
-
-    const interval = setInterval(updatePlayedTime, 60000);
-
-    return () => clearInterval(interval);
-  }, [user]);
-
-  useEffect(() => {
-    const fetchAssets = async () => {
-      const { data } = await supabase
-        .from("assets")
-        .select("*")
-        .eq("is_active", true)
-        .order("market_cap", { ascending: false });
-      
-      if (data && data.length > 0) {
-        setAssets(data);
-        setSelectedAsset(data[0]);
-      }
-    };
-
-    fetchAssets();
-
-    // Subscribe to real-time updates for asset prices
-    const channel = supabase
-      .channel('assets-updates')
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'assets' },
-        (payload) => {
-          setAssets(prev => 
-            prev.map(asset => 
-              asset.id === payload.new.id ? payload.new : asset
-            )
-          );
-          // Update selected asset if it's the one that changed
-          setSelectedAsset(prev => 
-            prev?.id === payload.new.id ? payload.new : prev
-          );
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
+    const base: Omit<AssetLite, "current_price" | "price_change_24h">[] = [
+      { id: "BTC", symbol: "BTC", name: "Bitcoin", category: "crypto" },
+      { id: "ETH", symbol: "ETH", name: "Ethereum", category: "crypto" },
+      { id: "SOL", symbol: "SOL", name: "Solana", category: "crypto" },
+      { id: "BNB", symbol: "BNB", name: "BNB", category: "crypto" },
+      { id: "XRP", symbol: "XRP", name: "XRP", category: "crypto" },
+      { id: "DOGE", symbol: "DOGE", name: "Dogecoin", category: "crypto" },
+      { id: "ADA", symbol: "ADA", name: "Cardano", category: "crypto" },
+    ];
+    const withPrices: AssetLite[] = base.map(a => ({
+      ...a,
+      current_price: prices[a.symbol] || 0,
+      price_change_24h: null,
+    }));
+    setAssets(withPrices);
+    setSelectedAsset(withPrices[0]);
+  }, [prices]);
 
   if (loading || !user) {
     return (

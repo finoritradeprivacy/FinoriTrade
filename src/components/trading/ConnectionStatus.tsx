@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { Wifi, WifiOff, Clock, TrendingUp, TrendingDown } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSoundAlerts } from '@/hooks/useSoundAlerts';
 import { toast } from 'sonner';
+import { useSimTrade } from '@/contexts/SimTradeContext';
 interface ConnectionStatusProps {
   assetId?: string;
 }
@@ -13,7 +13,6 @@ interface MarketMovement {
   isPositive: boolean;
 }
 
-// Threshold for significant market movement (3% change)
 const SIGNIFICANT_MOVEMENT_THRESHOLD = 3;
 export const ConnectionStatus = ({
   assetId
@@ -22,7 +21,6 @@ export const ConnectionStatus = ({
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [timeSinceUpdate, setTimeSinceUpdate] = useState<string>('');
   const [recentMovement, setRecentMovement] = useState<MarketMovement | null>(null);
-  const channelRef = useRef<any>(null);
   const previousPricesRef = useRef<Map<string, {
     price: number;
     symbol: string;
@@ -31,59 +29,41 @@ export const ConnectionStatus = ({
     playMarketMovementSound,
     soundEnabled
   } = useSoundAlerts();
+  const { prices } = useSimTrade();
   useEffect(() => {
-    // Subscribe to price updates to track connection and significant movements
-    const channel = supabase.channel('connection-status').on('postgres_changes', {
-      event: 'UPDATE',
-      schema: 'public',
-      table: 'assets'
-    }, payload => {
-      setLastUpdate(new Date());
-      setIsConnected(true);
-      const newData = payload.new as any;
-      const assetId = newData.id;
-      const currentPrice = newData.current_price;
-      const symbol = newData.symbol;
-
-      // Check for significant price movement
-      const previousData = previousPricesRef.current.get(assetId);
-      if (previousData && previousData.price > 0) {
-        const changePercent = (currentPrice - previousData.price) / previousData.price * 100;
-        if (Math.abs(changePercent) >= SIGNIFICANT_MOVEMENT_THRESHOLD) {
-          const isPositive = changePercent > 0;
-
-          // Play sound and show notification
+    const symbols = Object.keys(prices || {});
+    if (symbols.length === 0) return;
+    const targetSymbol = assetId && prices[assetId] !== undefined ? assetId : symbols[0];
+    const currentPrice = prices[targetSymbol];
+    if (!Number.isFinite(currentPrice) || currentPrice <= 0) return;
+    const now = new Date();
+    setLastUpdate(now);
+    setIsConnected(true);
+    const previousData = previousPricesRef.current.get(targetSymbol);
+    if (previousData && previousData.price > 0) {
+      const changePercent = (currentPrice - previousData.price) / previousData.price * 100;
+      if (Math.abs(changePercent) >= SIGNIFICANT_MOVEMENT_THRESHOLD) {
+        const isPositive = changePercent > 0;
+        if (soundEnabled) {
           playMarketMovementSound(isPositive);
-          setRecentMovement({
-            symbol,
-            change: changePercent,
-            isPositive
-          });
-          toast(isPositive ? 'Significant Price Increase!' : 'Significant Price Drop!', {
-            description: `${symbol} ${isPositive ? '📈' : '📉'} ${changePercent > 0 ? '+' : ''}${changePercent.toFixed(2)}%`,
-            duration: 5000
-          });
-
-          // Clear movement indicator after 5 seconds
-          setTimeout(() => setRecentMovement(null), 5000);
         }
+        setRecentMovement({
+          symbol: targetSymbol,
+          change: changePercent,
+          isPositive
+        });
+        toast(isPositive ? 'Significant Price Increase!' : 'Significant Price Drop!', {
+          description: `${targetSymbol} ${isPositive ? '📈' : '📉'} ${changePercent > 0 ? '+' : ''}${changePercent.toFixed(2)}%`,
+          duration: 5000
+        });
+        setTimeout(() => setRecentMovement(null), 5000);
       }
-
-      // Update stored price
-      previousPricesRef.current.set(assetId, {
-        price: currentPrice,
-        symbol
-      });
-    }).subscribe(status => {
-      setIsConnected(status === 'SUBSCRIBED');
+    }
+    previousPricesRef.current.set(targetSymbol, {
+      price: currentPrice,
+      symbol: targetSymbol
     });
-    channelRef.current = channel;
-    return () => {
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-      }
-    };
-  }, [playMarketMovementSound]);
+  }, [prices, assetId, playMarketMovementSound, soundEnabled]);
 
   // Update time since last update every second
   useEffect(() => {
@@ -110,7 +90,16 @@ export const ConnectionStatus = ({
       <div className="flex items-center gap-2">
         <Tooltip>
           <TooltipTrigger asChild>
-            
+            <div className={`flex items-center gap-2 px-2 py-1 rounded-md text-xs ${isConnected ? 'bg-emerald-500/10 text-emerald-500' : 'bg-destructive/10 text-destructive'}`}>
+              {isConnected ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
+              <span>{isConnected ? 'Live prices' : 'No live prices'}</span>
+              {timeSinceUpdate && (
+                <span className="flex items-center gap-1 text-[10px] text-muted-foreground ml-1">
+                  <Clock className="h-3 w-3" />
+                  {timeSinceUpdate}
+                </span>
+              )}
+            </div>
           </TooltipTrigger>
           <TooltipContent>
             <p>

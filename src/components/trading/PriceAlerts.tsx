@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { supabase } from '@/integrations/supabase/client';
+import { useSimTrade } from '@/contexts/SimTradeContext';
 import { Bell, BellRing, Plus, Trash2, TrendingUp, TrendingDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
@@ -26,14 +26,21 @@ interface PriceAlert {
   };
 }
 
+interface AssetLite {
+  id: string;
+  symbol: string;
+  name: string;
+  current_price: number;
+}
+
 interface PriceAlertsProps {
-  assets: any[];
-  selectedAsset?: any;
+  assets: AssetLite[];
+  selectedAsset?: AssetLite;
 }
 
 export const PriceAlerts = ({ assets, selectedAsset }: PriceAlertsProps) => {
   const { user } = useAuth();
-  const [alerts, setAlerts] = useState<PriceAlert[]>([]);
+  const { alerts, createAlert: ctxCreateAlert, deleteAlert: ctxDeleteAlert } = useSimTrade();
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newAlert, setNewAlert] = useState({
@@ -45,76 +52,24 @@ export const PriceAlerts = ({ assets, selectedAsset }: PriceAlertsProps) => {
   const previousTriggeredRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    if (user) {
-      fetchAlerts();
-      
-      // Subscribe to alert changes
-      const channel = supabase
-        .channel('price-alerts-changes')
-        .on(
-          'postgres_changes',
-          { event: 'UPDATE', schema: 'public', table: 'price_alerts' },
-          (payload) => {
-            // Check if an alert was just triggered
-            const newData = payload.new as any;
-            if (newData && !newData.is_active && newData.triggered_at) {
-              // This alert was just triggered - check if it's new
-              if (!previousTriggeredRef.current.has(newData.id)) {
-                previousTriggeredRef.current.add(newData.id);
-                playPriceAlertSound();
-                
-                // Find asset name
-                const asset = assets.find(a => a.id === newData.asset_id);
-                toast.success(`Price Alert Triggered!`, {
-                  description: `${asset?.symbol || 'Asset'} hit $${Number(newData.target_price).toFixed(2)}`
-                });
-              }
-            }
-            fetchAlerts();
-          }
-        )
-        .on(
-          'postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'price_alerts' },
-          () => fetchAlerts()
-        )
-        .on(
-          'postgres_changes',
-          { event: 'DELETE', schema: 'public', table: 'price_alerts' },
-          () => fetchAlerts()
-        )
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(channel);
-      };
-    }
-  }, [user, assets, playPriceAlertSound]);
+    if (!user) return;
+    alerts.forEach(a => {
+      if (!a.isActive && a.triggeredAt && !previousTriggeredRef.current.has(a.id)) {
+        previousTriggeredRef.current.add(a.id);
+        playPriceAlertSound();
+        const asset = assets.find(x => x.id === a.assetId || x.symbol === a.assetId);
+        toast.success(`Price Alert Triggered!`, {
+          description: `${asset?.symbol || a.assetId} hit $${Number(a.targetPrice).toFixed(2)}`
+        });
+      }
+    });
+  }, [user, alerts, assets, playPriceAlertSound]);
 
   useEffect(() => {
     if (selectedAsset && dialogOpen) {
       setNewAlert(prev => ({ ...prev, asset_id: selectedAsset.id }));
     }
   }, [selectedAsset, dialogOpen]);
-
-  const fetchAlerts = async () => {
-    const { data, error } = await supabase
-      .from('price_alerts')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (!error && data) {
-      // Enrich with asset data
-      const enrichedAlerts = data.map(alert => {
-        const asset = assets.find(a => a.id === alert.asset_id);
-        return {
-          ...alert,
-          asset: asset ? { symbol: asset.symbol, current_price: asset.current_price } : undefined
-        };
-      });
-      setAlerts(enrichedAlerts as PriceAlert[]);
-    }
-  };
 
   const createAlert = async () => {
     if (!user || !newAlert.asset_id || !newAlert.target_price) {
@@ -123,43 +78,41 @@ export const PriceAlerts = ({ assets, selectedAsset }: PriceAlertsProps) => {
     }
 
     setLoading(true);
-    const { error } = await supabase
-      .from('price_alerts')
-      .insert({
-        user_id: user.id,
-        asset_id: newAlert.asset_id,
-        target_price: parseFloat(newAlert.target_price),
-        condition: newAlert.condition
-      });
+    const res = ctxCreateAlert(
+      newAlert.asset_id,
+      parseFloat(newAlert.target_price),
+      newAlert.condition
+    );
 
     setLoading(false);
 
-    if (error) {
+    if (!res.ok) {
       toast.error('Failed to create alert');
     } else {
       toast.success('Price alert created');
       setDialogOpen(false);
       setNewAlert({ asset_id: '', target_price: '', condition: 'above' });
-      fetchAlerts();
     }
   };
 
-  const deleteAlert = async (id: string) => {
-    const { error } = await supabase
-      .from('price_alerts')
-      .delete()
-      .eq('id', id);
-
-    if (error) {
-      toast.error('Failed to delete alert');
-    } else {
+  const handleDeleteAlert = async (id: string) => {
+    try {
+      ctxDeleteAlert(id);
       toast.success('Alert deleted');
-      fetchAlerts();
+    } catch {
+      toast.error('Failed to delete alert');
     }
   };
 
-  const activeAlerts = alerts.filter(a => a.is_active);
-  const triggeredAlerts = alerts.filter(a => !a.is_active);
+  const enrichedAlerts = alerts.map(a => {
+    const asset = assets.find(x => x.id === a.assetId || x.symbol === a.assetId);
+    return {
+      ...a,
+      asset: asset ? { symbol: asset.symbol, current_price: asset.current_price } : undefined
+    };
+  });
+  const activeAlerts = enrichedAlerts.filter(a => a.isActive);
+  const triggeredAlerts = enrichedAlerts.filter(a => !a.isActive);
 
   return (
     <Card className="p-4">
@@ -271,7 +224,7 @@ export const PriceAlerts = ({ assets, selectedAsset }: PriceAlertsProps) => {
                   )}
                   <div>
                     <p className="text-sm font-medium">
-                      {alert.asset?.symbol || 'Unknown'} {alert.condition} ${Number(alert.target_price).toFixed(2)}
+                      {alert.asset?.symbol || 'Unknown'} {alert.condition} ${Number(alert.targetPrice).toFixed(2)}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       Current: ${alert.asset?.current_price?.toFixed(2) || '-'}
@@ -281,7 +234,7 @@ export const PriceAlerts = ({ assets, selectedAsset }: PriceAlertsProps) => {
                 <Button 
                   size="icon" 
                   variant="ghost" 
-                  onClick={() => deleteAlert(alert.id)}
+                  onClick={() => handleDeleteAlert(alert.id)}
                   className="h-8 w-8 text-muted-foreground hover:text-loss"
                 >
                   <Trash2 className="h-4 w-4" />
@@ -301,17 +254,17 @@ export const PriceAlerts = ({ assets, selectedAsset }: PriceAlertsProps) => {
                       <BellRing className="h-4 w-4 text-profit" />
                       <div>
                         <p className="text-sm font-medium">
-                          {alert.asset?.symbol || 'Unknown'} hit ${Number(alert.target_price).toFixed(2)}
+                          {alert.asset?.symbol || 'Unknown'} hit ${Number(alert.targetPrice).toFixed(2)}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {alert.triggered_at ? new Date(alert.triggered_at).toLocaleString() : '-'}
+                          {alert.triggeredAt ? new Date(alert.triggeredAt).toLocaleString() : '-'}
                         </p>
                       </div>
                     </div>
                     <Button 
                       size="icon" 
                       variant="ghost" 
-                      onClick={() => deleteAlert(alert.id)}
+                      onClick={() => handleDeleteAlert(alert.id)}
                       className="h-8 w-8 text-muted-foreground hover:text-loss"
                     >
                       <Trash2 className="h-4 w-4" />

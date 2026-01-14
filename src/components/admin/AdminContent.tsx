@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -74,23 +73,14 @@ export const AdminContent = () => {
   });
 
   useEffect(() => {
-    fetchData();
+    setLoading(false);
   }, []);
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const { data: announcementsData } = await supabase
-        .from('system_announcements')
-        .select('*')
-        .order('created_at', { ascending: false });
-      setAnnouncements(announcementsData || []);
-
-      const { data: promoData } = await supabase
-        .from('promo_codes')
-        .select('*')
-        .order('created_at', { ascending: false });
-      setPromoCodes(promoData || []);
+      setAnnouncements([]);
+      setPromoCodes([]);
     } catch (error) {
       console.error('Error fetching content data:', error);
       toast.error('Failed to fetch content data');
@@ -101,27 +91,9 @@ export const AdminContent = () => {
 
   const handleSaveAnnouncement = async () => {
     try {
-      if (editingAnnouncement) {
-        await supabase
-          .from('system_announcements')
-          .update(announcementForm)
-          .eq('id', editingAnnouncement.id);
-        toast.success('Announcement updated');
-      } else {
-        await supabase.from('system_announcements').insert(announcementForm);
-        toast.success('Announcement created');
-      }
-
-      await supabase.rpc('log_admin_action', {
-        p_action_type: editingAnnouncement ? 'update_announcement' : 'create_announcement',
-        p_entity_type: 'announcement',
-        p_entity_id: editingAnnouncement?.id,
-        p_details: announcementForm
-      });
-
+      toast.info('Announcements are disabled in simulation mode');
       setShowAnnouncementDialog(false);
       resetAnnouncementForm();
-      fetchData();
     } catch (error) {
       console.error('Error saving announcement:', error);
       toast.error('Failed to save announcement');
@@ -130,16 +102,8 @@ export const AdminContent = () => {
 
   const handleDeleteAnnouncement = async (id: string) => {
     try {
-      await supabase.from('system_announcements').delete().eq('id', id);
-      
-      await supabase.rpc('log_admin_action', {
-        p_action_type: 'delete_announcement',
-        p_entity_type: 'announcement',
-        p_entity_id: id,
-      });
-
+      toast.info('Announcements are disabled in simulation mode');
       toast.success('Announcement deleted');
-      fetchData();
     } catch (error) {
       console.error('Error deleting announcement:', error);
       toast.error('Failed to delete announcement');
@@ -148,37 +112,9 @@ export const AdminContent = () => {
 
   const handleSavePromo = async () => {
     try {
-      const data = {
-        code: promoForm.code.toUpperCase(),
-        description: promoForm.description || null,
-        reward_type: promoForm.reward_type,
-        reward_usdt: promoForm.reward_usdt,
-        reward_xp: promoForm.reward_xp,
-        max_uses: promoForm.max_uses ? parseInt(promoForm.max_uses) : null,
-        is_active: promoForm.is_active,
-      };
-
-      if (editingPromo) {
-        await supabase
-          .from('promo_codes')
-          .update(data)
-          .eq('id', editingPromo.id);
-        toast.success('Promo code updated');
-      } else {
-        await supabase.from('promo_codes').insert(data);
-        toast.success('Promo code created');
-      }
-
-      await supabase.rpc('log_admin_action', {
-        p_action_type: editingPromo ? 'update_promo' : 'create_promo',
-        p_entity_type: 'promo_code',
-        p_entity_id: editingPromo?.id,
-        p_details: data
-      });
-
+      toast.info('Promo codes are disabled in simulation mode');
       setShowPromoDialog(false);
       resetPromoForm();
-      fetchData();
     } catch (error) {
       console.error('Error saving promo code:', error);
       toast.error('Failed to save promo code');
@@ -187,16 +123,8 @@ export const AdminContent = () => {
 
   const handleDeletePromo = async (id: string) => {
     try {
-      await supabase.from('promo_codes').delete().eq('id', id);
-      
-      await supabase.rpc('log_admin_action', {
-        p_action_type: 'delete_promo',
-        p_entity_type: 'promo_code',
-        p_entity_id: id,
-      });
-
+      toast.info('Promo codes are disabled in simulation mode');
       toast.success('Promo code deleted');
-      fetchData();
     } catch (error) {
       console.error('Error deleting promo code:', error);
       toast.error('Failed to delete promo code');

@@ -1,9 +1,9 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { useAdmin } from "@/hooks/useAdmin";
+import { useSimTrade } from "@/contexts/SimTradeContext";
 import { Button } from "@/components/ui/button";
 import { LogOut, User, Shield, Menu, Info, Phone, HelpCircle, MessageSquare } from "lucide-react";
-import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { UserNotifications } from "./UserNotifications";
 import { FeedbackDialog } from "./FeedbackDialog";
@@ -17,60 +17,13 @@ import {
 const Header = () => {
   const { user, signOut } = useAuth();
   const { isAdmin } = useAdmin();
+  const { usdtBalance } = useSimTrade();
   const navigate = useNavigate();
-  const [balance, setBalance] = useState(0);
-  const [profile, setProfile] = useState<any>(null);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
-  useEffect(() => {
-    const fetchUserData = async () => {
-      if (!user) return;
-
-      const { data: balanceData } = await supabase
-        .from("user_balances")
-        .select("*")
-        .eq("user_id", user.id)
-        .single();
-
-      if (balanceData) {
-        setBalance(Number(balanceData.usdt_balance));
-      }
-
-      const { data: profileData } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", user.id)
-        .single();
-
-      if (profileData) {
-        setProfile(profileData);
-      }
-    };
-
-    fetchUserData();
-
-    const channel = supabase
-      .channel('balance-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'user_balances',
-          filter: `user_id=eq.${user?.id}`
-        },
-        (payload) => {
-          if (payload.new) {
-            setBalance(Number((payload.new as any).usdt_balance));
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user]);
+  const nickname =
+    (user?.user_metadata as any)?.nickname ||
+    (user?.email ? String(user.email).split("@")[0] : "User");
 
   return (
     <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-50">
@@ -94,14 +47,14 @@ const Header = () => {
                 onClick={() => navigate("/profile")}
                 className="flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-lg border border-primary/20 hover:bg-primary/20 transition-colors"
               >
-                <User className="w-4 h-4 text-primary" />
-                <span className="text-sm font-medium">{profile?.nickname}</span>
+                    <User className="w-4 h-4 text-primary" />
+                    <span className="text-sm font-medium">{nickname}</span>
               </button>
               
               <div className="px-4 py-2 bg-secondary rounded-lg">
                 <p className="text-xs text-muted-foreground">Balance</p>
                 <p className="text-lg font-bold font-mono">
-                  ${balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  ${usdtBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </p>
               </div>
             </div>
@@ -159,13 +112,13 @@ const Header = () => {
             className="flex-1 px-3 py-2 bg-primary/10 rounded-lg border border-primary/20 text-left hover:bg-primary/20 transition-colors"
           >
             <p className="text-xs text-muted-foreground">User</p>
-            <p className="text-sm font-medium">{profile?.nickname}</p>
+            <p className="text-sm font-medium">{nickname}</p>
           </button>
           
           <div className="flex-1 px-3 py-2 bg-secondary rounded-lg">
             <p className="text-xs text-muted-foreground">Balance</p>
             <p className="text-sm font-bold font-mono">
-              ${balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ${usdtBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
           </div>
         </div>

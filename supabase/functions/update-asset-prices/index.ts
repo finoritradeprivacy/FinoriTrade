@@ -600,29 +600,9 @@ Deno.serve(async (req) => {
     const signature = req.headers.get('X-Cron-Signature') || '';
     const envSecret = Deno.env.get('CRON_SECRET') || '';
 
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
-    let dbSecret: string | null = null;
-    try {
-      const { data: cfg, error: cfgError } = await supabase
-        .from('system_config')
-        .select('value')
-        .eq('key', 'cron_secret')
-        .maybeSingle();
-      if (!cfgError) {
-        dbSecret = (cfg as any)?.value ?? null;
-      } else {
-        console.error('Error loading cron secret from DB:', cfgError);
-      }
-    } catch (e) {
-      console.error('Exception loading cron secret from DB:', e);
-    }
-
     const validSignature =
       !!signature &&
-      ((envSecret && signature === envSecret) || (dbSecret && signature === dbSecret));
+      (envSecret && signature === envSecret);
 
     if (!validSignature) {
       console.error('Unauthorized: Invalid or missing cron signature');
@@ -635,17 +615,8 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Run first update immediately
-    const result = await performPriceUpdate(supabase, 0, 6);
-
-    // Schedule the remaining 59 updates as background tasks
-    // Using EdgeRuntime.waitUntil to keep the function alive
-    (globalThis as any).EdgeRuntime?.waitUntil?.(runDelayedUpdates(supabase));
-
-    console.log('First update done, 5 background updates scheduled (1 per 10s)');
-
     return new Response(
-      JSON.stringify({ success: true, message: '6 updates scheduled over 60 seconds (1 per 10s)', firstUpdate: result }),
+      JSON.stringify({ success: true, message: 'price updates disabled' }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 

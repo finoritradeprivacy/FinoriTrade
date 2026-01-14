@@ -3,14 +3,30 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { TrendingUp, TrendingDown, Bitcoin, LineChart, DollarSign, MoreVertical, Newspaper, Trophy } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import AssetsOverviewDialog from "./AssetsOverviewDialog";
 import { Challenges } from "./Challenges";
 
+interface AssetLite {
+  id: string;
+  symbol: string;
+  name: string;
+  category: 'crypto' | 'stocks' | 'forex';
+  current_price: number;
+  price_change_24h?: number | null;
+  dividend_yield?: number;
+}
+
+interface NewsEvent {
+  id: string;
+  scheduled_for: string;
+  assets: { id: string; symbol: string; name: string };
+  asset_id: string;
+}
+
 interface AssetSelectorProps {
-  assets: any[];
-  selectedAsset: any;
-  onSelectAsset: (asset: any) => void;
+  assets: AssetLite[];
+  selectedAsset: AssetLite | null;
+  onSelectAsset: (asset: AssetLite) => void;
 }
 
 const AssetSelector = ({
@@ -20,7 +36,7 @@ const AssetSelector = ({
 }: AssetSelectorProps) => {
   const [selectedCategory, setSelectedCategory] = useState<'crypto' | 'stocks' | 'forex' | 'news' | 'challenges'>('crypto');
   const [showOverview, setShowOverview] = useState(false);
-  const [pendingNews, setPendingNews] = useState<any[]>([]);
+  const [pendingNews, setPendingNews] = useState<NewsEvent[]>([]);
   const [, setTick] = useState(0);
   const [assetCooldown, setAssetCooldown] = useState(0);
   const lastAssetChangeRef = useRef<number>(0);
@@ -36,7 +52,7 @@ const AssetSelector = ({
     return () => clearInterval(interval);
   }, [assetCooldown]);
 
-  const handleAssetSelect = (asset: any) => {
+  const handleAssetSelect = (asset: AssetLite) => {
     if (assetCooldown > 0) {
       return; // Silently ignore during cooldown
     }
@@ -47,12 +63,22 @@ const AssetSelector = ({
 
   useEffect(() => {
     const fetchPendingNews = async () => {
-      const { data } = await supabase
-        .from("news_events")
-        .select("*, assets!inner(id, symbol, name)")
-        .not("scheduled_for", "is", null)
-        .order("scheduled_for", { ascending: true });
-      if (data) setPendingNews(data);
+      // Mock news
+      const mockNews: NewsEvent[] = [
+        {
+          id: '1',
+          scheduled_for: new Date(Date.now() + 1000 * 60 * 30).toISOString(),
+          assets: { id: 'btc', symbol: 'BTC', name: 'Bitcoin' },
+          asset_id: 'btc'
+        },
+        {
+          id: '2',
+          scheduled_for: new Date(Date.now() + 1000 * 60 * 60 * 2).toISOString(),
+          assets: { id: 'eth', symbol: 'ETH', name: 'Ethereum' },
+          asset_id: 'eth'
+        }
+      ];
+      setPendingNews(mockNews);
     };
     fetchPendingNews();
 
@@ -61,21 +87,7 @@ const AssetSelector = ({
       setTick(prev => prev + 1);
     }, 1000);
     
-    const channel = supabase
-      .channel('news-updates-selector')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'news_events'
-      }, () => {
-        fetchPendingNews();
-      })
-      .subscribe();
-      
-    return () => {
-      clearInterval(interval);
-      supabase.removeChannel(channel);
-    };
+    return () => clearInterval(interval);
   }, []);
 
   const filteredAssets = selectedCategory === 'news' || selectedCategory === 'challenges' 

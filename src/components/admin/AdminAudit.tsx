@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,7 +23,7 @@ interface AuditLog {
   action_type: string;
   entity_type: string;
   entity_id: string | null;
-  details: any;
+  details: Record<string, unknown>;
   ip_address: string | null;
   created_at: string;
 }
@@ -55,48 +54,58 @@ export const AdminAudit = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // Fetch audit logs
-      const { data: logsData } = await supabase
-        .from('audit_logs')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(200);
+      // Mock data for audit logs
+      const mockLogs: AuditLog[] = [
+        {
+          id: '1',
+          user_id: 'user-1',
+          user_nickname: 'TraderJohn',
+          action_type: 'place_order',
+          entity_type: 'order',
+          entity_id: 'ord-123',
+          details: { symbol: 'BTC', side: 'buy', amount: 0.1 },
+          ip_address: '192.168.1.1',
+          created_at: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
+        },
+        {
+          id: '2',
+          user_id: 'user-2',
+          user_nickname: 'CryptoKing',
+          action_type: 'login',
+          entity_type: 'auth',
+          entity_id: null,
+          details: { method: 'email' },
+          ip_address: '10.0.0.1',
+          created_at: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
+        },
+        {
+          id: '3',
+          user_id: 'system',
+          user_nickname: 'System',
+          action_type: 'market_update',
+          entity_type: 'market',
+          entity_id: null,
+          details: { event: 'volatility_spike' },
+          ip_address: null,
+          created_at: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
+        }
+      ];
+      setAuditLogs(mockLogs);
 
-      // Get user nicknames
-      const userIds = [...new Set(logsData?.map(l => l.user_id).filter(Boolean) || [])];
-      const { data: profilesData } = await supabase
-        .from('profiles')
-        .select('id, nickname')
-        .in('id', userIds);
-      
-      const nicknameMap = new Map(profilesData?.map(p => [p.id, p.nickname]) || []);
+      // Mock data for blocked IPs
+      const mockBlockedIPs: BlockedIP[] = [
+        {
+          id: '1',
+          ip_address: '1.2.3.4',
+          reason: 'Suspicious activity',
+          blocked_by_nickname: 'AdminUser',
+          expires_at: null,
+          is_active: true,
+          created_at: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
+        }
+      ];
+      setBlockedIPs(mockBlockedIPs);
 
-      const logs: AuditLog[] = logsData?.map(l => ({
-        ...l,
-        user_nickname: nicknameMap.get(l.user_id) || 'System',
-      })) || [];
-      setAuditLogs(logs);
-
-      // Fetch blocked IPs
-      const { data: ipsData } = await supabase
-        .from('ip_blocklist')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      // Get blocker nicknames
-      const blockerIds = [...new Set(ipsData?.map(i => i.blocked_by).filter(Boolean) || [])];
-      const { data: blockersData } = await supabase
-        .from('profiles')
-        .select('id, nickname')
-        .in('id', blockerIds);
-      
-      const blockerMap = new Map(blockersData?.map(p => [p.id, p.nickname]) || []);
-
-      const ips: BlockedIP[] = ipsData?.map(i => ({
-        ...i,
-        blocked_by_nickname: i.blocked_by ? blockerMap.get(i.blocked_by) : undefined,
-      })) || [];
-      setBlockedIPs(ips);
     } catch (error) {
       console.error('Error fetching audit data:', error);
       toast.error('Failed to fetch audit data');
@@ -109,22 +118,35 @@ export const AdminAudit = () => {
     if (!newBlockIP) return;
 
     try {
-      await supabase.from('ip_blocklist').insert({
+      const newBlock: BlockedIP = {
+        id: Math.random().toString(36).substr(2, 9),
         ip_address: newBlockIP,
         reason: newBlockReason || null,
-      });
+        blocked_by_nickname: 'You',
+        expires_at: null,
+        is_active: true,
+        created_at: new Date().toISOString(),
+      };
+      
+      setBlockedIPs(prev => [newBlock, ...prev]);
 
-      await supabase.rpc('log_admin_action', {
-        p_action_type: 'block_ip',
-        p_entity_type: 'ip',
-        p_entity_id: newBlockIP,
-        p_details: { reason: newBlockReason }
-      });
+      // Add audit log for this action
+      const newLog: AuditLog = {
+        id: Math.random().toString(36).substr(2, 9),
+        user_id: 'local',
+        user_nickname: 'You',
+        action_type: 'block_ip',
+        entity_type: 'ip',
+        entity_id: newBlockIP,
+        details: { reason: newBlockReason },
+        ip_address: '127.0.0.1',
+        created_at: new Date().toISOString(),
+      };
+      setAuditLogs(prev => [newLog, ...prev]);
 
       toast.success(`IP ${newBlockIP} blocked`);
       setNewBlockIP('');
       setNewBlockReason('');
-      fetchData();
     } catch (error) {
       console.error('Error blocking IP:', error);
       toast.error('Failed to block IP');
@@ -133,19 +155,25 @@ export const AdminAudit = () => {
 
   const handleUnblockIP = async (ip: BlockedIP) => {
     try {
-      await supabase
-        .from('ip_blocklist')
-        .update({ is_active: false })
-        .eq('id', ip.id);
+      setBlockedIPs(prev => prev.map(item => 
+        item.id === ip.id ? { ...item, is_active: false } : item
+      ));
 
-      await supabase.rpc('log_admin_action', {
-        p_action_type: 'unblock_ip',
-        p_entity_type: 'ip',
-        p_entity_id: ip.ip_address,
-      });
+      // Add audit log
+      const newLog: AuditLog = {
+        id: Math.random().toString(36).substr(2, 9),
+        user_id: 'local',
+        user_nickname: 'You',
+        action_type: 'unblock_ip',
+        entity_type: 'ip',
+        entity_id: ip.ip_address,
+        details: {},
+        ip_address: '127.0.0.1',
+        created_at: new Date().toISOString(),
+      };
+      setAuditLogs(prev => [newLog, ...prev]);
 
       toast.success(`IP ${ip.ip_address} unblocked`);
-      fetchData();
     } catch (error) {
       console.error('Error unblocking IP:', error);
       toast.error('Failed to unblock IP');

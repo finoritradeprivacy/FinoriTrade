@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,57 +26,17 @@ export const AdminSettings = () => {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    fetchSettings();
+    setLoading(false);
   }, []);
 
   const fetchSettings = async () => {
-    setLoading(true);
-    try {
-      const { data } = await supabase
-        .from('trading_settings')
-        .select('*');
-
-      if (data) {
-        const newSettings = { ...settings };
-        data.forEach(item => {
-          const value = typeof item.setting_value === 'string' 
-            ? JSON.parse(item.setting_value) 
-            : item.setting_value;
-          
-          if (item.setting_key === 'trading_hours') {
-            newSettings.trading_hours = value;
-          } else if (item.setting_key === 'cooldown_after_loss_percent') {
-            newSettings.cooldown_after_loss_percent = value;
-          } else if (item.setting_key === 'markets_enabled') {
-            newSettings.markets_enabled = value;
-          }
-        });
-        setSettings(newSettings);
-      }
-    } catch (error) {
-      console.error('Error fetching settings:', error);
-      toast.error('Failed to fetch settings');
-    } finally {
-      setLoading(false);
-    }
+    setLoading(false);
   };
 
   const handleSaveSettings = async (key: string, value: any) => {
     setSaving(true);
     try {
-      await supabase
-        .from('trading_settings')
-        .update({ setting_value: value })
-        .eq('setting_key', key);
-
-      await supabase.rpc('log_admin_action', {
-        p_action_type: 'update_system_setting',
-        p_entity_type: 'settings',
-        p_entity_id: key,
-        p_details: value
-      });
-
-      toast.success('Settings saved');
+      toast.info('Settings are local-only in simulation mode');
     } catch (error) {
       console.error('Error saving settings:', error);
       toast.error('Failed to save settings');

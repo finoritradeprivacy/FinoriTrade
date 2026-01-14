@@ -1,9 +1,7 @@
-import { useEffect, useState, useRef, useCallback } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { useEffect, useState, useRef } from "react";
 import { TrendingUp, TrendingDown } from "lucide-react";
 
 interface Asset {
-  id: string;
   symbol: string;
   name: string;
   current_price: number;
@@ -13,61 +11,43 @@ interface Asset {
 const SCROLL_SPEED = 60; // Pixels per second
 
 const MarketTicker = () => {
-  const [assets, setAssets] = useState<Asset[]>([]);
+  const [assets, setAssets] = useState<Asset[]>([
+    { symbol: 'BTC', name: 'Bitcoin', current_price: 0, price_change_24h: null },
+    { symbol: 'ETH', name: 'Ethereum', current_price: 0, price_change_24h: null },
+    { symbol: 'SOL', name: 'Solana', current_price: 0, price_change_24h: null },
+    { symbol: 'BNB', name: 'BNB', current_price: 0, price_change_24h: null },
+    { symbol: 'XRP', name: 'XRP', current_price: 0, price_change_24h: null },
+    { symbol: 'DOGE', name: 'Dogecoin', current_price: 0, price_change_24h: null },
+    { symbol: 'ADA', name: 'Cardano', current_price: 0, price_change_24h: null },
+  ]);
+  const [wsPrices, setWsPrices] = useState<Record<string, number>>({});
   const [scrollPosition, setScrollPosition] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<number | null>(null);
   const lastTimeRef = useRef<number>(0);
 
-  const fetchAssets = useCallback(async () => {
-    const { data } = await supabase
-      .from("assets")
-      .select("id, symbol, name, current_price, price_change_24h")
-      .eq("is_active", true)
-      .order("price_change_24h", { ascending: false });
-    
-    if (data) {
-      const sorted = [...data].sort((a, b) => 
-        Math.abs(b.price_change_24h || 0) - Math.abs(a.price_change_24h || 0)
-      );
-      return sorted.slice(0, 10);
-    }
-    return [];
-  }, []);
-
   // Initialize and subscribe to updates
   useEffect(() => {
-    fetchAssets().then(data => {
-      if (data.length > 0) setAssets(data);
-    });
-
-    const channel = supabase
-      .channel('ticker-updates')
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'assets' },
-        (payload) => {
-          // Update prices for currently displayed assets
-          setAssets(prev => 
-            prev.map(asset => 
-              asset.id === payload.new.id 
-                ? { 
-                    ...asset, 
-                    current_price: payload.new.current_price, 
-                    price_change_24h: payload.new.price_change_24h 
-                  }
-                : asset
-            )
-          );
-        }
-      )
-      .subscribe();
+    const cryptoSymbols = ['BTC','ETH','SOL','BNB','XRP','DOGE','ADA'];
+    const binanceStreams = cryptoSymbols.map(s => `${s.toLowerCase()}usdt@miniTicker`).join('/');
+    const ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${binanceStreams}`);
+    ws.onmessage = (ev) => {
+      const data = JSON.parse(ev.data);
+      const p = data?.data;
+      if (!p || !p.s || !p.c) return;
+      const sym = String(p.s).toUpperCase().replace('USDT','');
+      const price = Number(p.c);
+      setWsPrices(prev => ({ ...prev, [sym]: price }));
+      setAssets(prev => prev.map(a => a.symbol === sym ? { ...a, current_price: price } : a));
+    };
 
     return () => {
-      supabase.removeChannel(channel);
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close();
+      }
     };
-  }, [fetchAssets]);
+  }, []);
 
   // Simple CSS-based animation with scroll position tracking
   useEffect(() => {
@@ -141,13 +121,14 @@ const MarketTicker = () => {
       >
         {tickerItems.map((asset, index) => {
           const isPositive = (asset.price_change_24h || 0) >= 0;
+          const price = wsPrices[asset.symbol] ?? asset.current_price;
           return (
             <div
-              key={`${asset.id}-${index}`}
+              key={`${asset.symbol}-${index}`}
               className="flex items-center gap-2 px-6 py-2 border-r border-border/50"
             >
               <span className="font-semibold text-foreground">{asset.symbol}</span>
-              <span className="text-muted-foreground">${formatPrice(asset.current_price)}</span>
+              <span className="text-muted-foreground">${formatPrice(price)}</span>
               <span className={`flex items-center gap-1 font-medium ${isPositive ? 'text-green-500' : 'text-red-500'}`}>
                 {isPositive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
                 {formatChange(asset.price_change_24h)}

@@ -12,7 +12,6 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { Send, Loader2 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 
 interface FeedbackDialogProps {
   open: boolean;

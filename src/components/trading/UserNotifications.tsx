@@ -8,7 +8,6 @@ import {
 } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatDistanceToNow } from "date-fns";
 import { useSoundAlerts } from "@/hooks/useSoundAlerts";
@@ -46,64 +45,16 @@ export const UserNotifications = () => {
   const lastNotificationIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!user) return;
-
-    const fetchNotifications = async () => {
-      const { data } = await supabase
-        .from("user_notifications")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(20);
-
-      if (data) {
-        setNotifications(data as Notification[]);
-        setUnreadCount(data.filter((n) => !n.is_read).length);
-      }
-    };
-
-    fetchNotifications();
-
-    // Subscribe to new notifications
-    const channel = supabase
-      .channel("user-notifications")
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "user_notifications",
-          filter: `user_id=eq.${user.id}`,
-        },
-        (payload) => {
-          const newNotif = payload.new as Notification;
-          
-          // Avoid duplicate notifications
-          if (lastNotificationIdRef.current === newNotif.id) return;
-          lastNotificationIdRef.current = newNotif.id;
-          
-          setNotifications((prev) => [newNotif, ...prev.slice(0, 19)]);
-          setUnreadCount((prev) => prev + 1);
-          
-          // Play sound and animate
-          playNotificationSound();
-          setAnimatingBell(true);
-          setTimeout(() => setAnimatingBell(false), 600);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    if (!user) {
+      setNotifications([]);
+      setUnreadCount(0);
+      return;
+    }
+    setNotifications([]);
+    setUnreadCount(0);
   }, [user]);
 
   const markAsRead = async (id: string) => {
-    await supabase
-      .from("user_notifications")
-      .update({ is_read: true })
-      .eq("id", id);
-
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, is_read: true } : n))
     );
@@ -112,12 +63,6 @@ export const UserNotifications = () => {
 
   const markAllAsRead = async () => {
     if (!user) return;
-
-    await supabase
-      .from("user_notifications")
-      .update({ is_read: true })
-      .eq("user_id", user.id)
-      .eq("is_read", false);
 
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
     setUnreadCount(0);

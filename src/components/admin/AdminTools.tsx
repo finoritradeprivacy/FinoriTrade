@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSimTrade } from '@/contexts/SimTradeContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +15,7 @@ import {
 
 export const AdminTools = () => {
   const { user } = useAuth();
+  const { prices, applyVolatility, applyMarketCrash, overridePrice } = useSimTrade();
   const [testUserEmail, setTestUserEmail] = useState('');
   const [testUserNickname, setTestUserNickname] = useState('');
   const [volatilityMultiplier, setVolatilityMultiplier] = useState('2');
@@ -27,29 +28,8 @@ export const AdminTools = () => {
       return;
     }
 
-    setIsCreatingTestUser(true);
     try {
-      // Create test user with known password
-      const { data, error } = await supabase.auth.signUp({
-        email: testUserEmail,
-        password: 'TestUser123!',
-        options: {
-          data: {
-            nickname: testUserNickname,
-          }
-        }
-      });
-
-      if (error) throw error;
-
-      await supabase.rpc('log_admin_action', {
-        p_action_type: 'create_test_user',
-        p_entity_type: 'user',
-        p_entity_id: data.user?.id,
-        p_details: { email: testUserEmail, nickname: testUserNickname }
-      });
-
-      toast.success(`Test user created: ${testUserEmail} / TestUser123!`);
+      toast.info('Creating separate test users is disabled in simulation mode.');
       setTestUserEmail('');
       setTestUserNickname('');
     } catch (error: any) {
@@ -64,35 +44,13 @@ export const AdminTools = () => {
     setIsSimulatingVolatility(true);
     try {
       const multiplier = parseFloat(volatilityMultiplier);
-      
-      // Get all assets
-      const { data: assets } = await supabase
-        .from('assets')
-        .select('id, current_price')
-        .eq('is_active', true);
-
-      if (!assets) throw new Error('No assets found');
-
-      // Apply random price changes with increased volatility
-      for (const asset of assets) {
-        const changePercent = (Math.random() - 0.5) * 2 * multiplier * 5; // ±5% * multiplier
-        const newPrice = asset.current_price * (1 + changePercent / 100);
-        
-        await supabase
-          .from('assets')
-          .update({ current_price: Math.max(0.01, newPrice) })
-          .eq('id', asset.id);
+      if (!Number.isFinite(multiplier) || multiplier <= 0) {
+        toast.error('Invalid multiplier');
+      } else {
+        applyVolatility(multiplier);
+        toast.success(`Volatility simulation applied (${multiplier}x)`);
       }
-
-      await supabase.rpc('log_admin_action', {
-        p_action_type: 'simulate_volatility',
-        p_entity_type: 'market',
-        p_details: { multiplier, affected_assets: assets.length }
-      });
-
-      toast.success(`Volatility simulation applied (${multiplier}x)`);
     } catch (error) {
-      console.error('Error simulating volatility:', error);
       toast.error('Failed to simulate volatility');
     } finally {
       setIsSimulatingVolatility(false);
@@ -101,81 +59,24 @@ export const AdminTools = () => {
 
   const handleSimulateMarketCrash = async () => {
     try {
-      const { data: assets } = await supabase
-        .from('assets')
-        .select('id, current_price')
-        .eq('is_active', true);
-
-      if (!assets) throw new Error('No assets found');
-
-      // Drop all prices by 10-30%
-      for (const asset of assets) {
-        const dropPercent = 10 + Math.random() * 20;
-        const newPrice = asset.current_price * (1 - dropPercent / 100);
-        
-        await supabase
-          .from('assets')
-          .update({ current_price: Math.max(0.01, newPrice) })
-          .eq('id', asset.id);
-      }
-
-      // Create admin notification
-      await supabase.rpc('create_admin_notification', {
-        p_type: 'market_simulation',
-        p_title: 'Market Crash Simulated',
-        p_message: `All asset prices dropped by 10-30%`,
-        p_severity: 'warning'
-      });
-
-      await supabase.rpc('log_admin_action', {
-        p_action_type: 'simulate_market_crash',
-        p_entity_type: 'market',
-        p_details: { affected_assets: assets.length }
-      });
-
+      applyMarketCrash();
       toast.success('Market crash simulated');
     } catch (error) {
-      console.error('Error simulating market crash:', error);
       toast.error('Failed to simulate market crash');
     }
   };
 
   const handleSimulateMarketRally = async () => {
     try {
-      const { data: assets } = await supabase
-        .from('assets')
-        .select('id, current_price')
-        .eq('is_active', true);
-
-      if (!assets) throw new Error('No assets found');
-
-      // Increase all prices by 10-30%
-      for (const asset of assets) {
+      const keys = Object.keys(prices || {});
+      keys.forEach(sym => {
+        const p = prices[sym];
         const risePercent = 10 + Math.random() * 20;
-        const newPrice = asset.current_price * (1 + risePercent / 100);
-        
-        await supabase
-          .from('assets')
-          .update({ current_price: newPrice })
-          .eq('id', asset.id);
-      }
-
-      await supabase.rpc('create_admin_notification', {
-        p_type: 'market_simulation',
-        p_title: 'Market Rally Simulated',
-        p_message: `All asset prices increased by 10-30%`,
-        p_severity: 'info'
+        const newPrice = Math.max(0.0001, p * (1 + risePercent / 100));
+        overridePrice(sym, newPrice);
       });
-
-      await supabase.rpc('log_admin_action', {
-        p_action_type: 'simulate_market_rally',
-        p_entity_type: 'market',
-        p_details: { affected_assets: assets.length }
-      });
-
       toast.success('Market rally simulated');
     } catch (error) {
-      console.error('Error simulating market rally:', error);
       toast.error('Failed to simulate market rally');
     }
   };
@@ -200,40 +101,19 @@ export const AdminTools = () => {
         'AUD/USD': 0.65,
         'USD/CAD': 1.36,
       };
-
-      const { data: assets } = await supabase.from('assets').select('id, symbol');
-
-      for (const asset of assets || []) {
-        const basePrice = basePrices[asset.symbol];
-        if (basePrice) {
-          await supabase
-            .from('assets')
-            .update({ current_price: basePrice })
-            .eq('id', asset.id);
-        }
-      }
-
-      await supabase.rpc('log_admin_action', {
-        p_action_type: 'reset_prices',
-        p_entity_type: 'market',
+      Object.entries(basePrices).forEach(([sym, price]) => {
+        overridePrice(sym, price);
       });
-
       toast.success('All prices reset to base values');
     } catch (error) {
-      console.error('Error resetting prices:', error);
       toast.error('Failed to reset prices');
     }
   };
 
   const handleTriggerPriceUpdate = async () => {
     try {
-      const response = await supabase.functions.invoke('update-asset-prices');
-      
-      if (response.error) throw response.error;
-
-      toast.success('Price update triggered');
+      toast.info('Live prices update continuously; manual trigger disabled.');
     } catch (error) {
-      console.error('Error triggering price update:', error);
       toast.error('Failed to trigger price update');
     }
   };
@@ -244,26 +124,8 @@ export const AdminTools = () => {
   const handleTriggerNewsGeneration = async () => {
     setIsGeneratingNews(true);
     try {
-      const response = await supabase.functions.invoke('generate-news');
-      
-      if (response.error) throw response.error;
-
-      const data = response.data;
-      if (data?.generated) {
-        toast.success(`Generated ${data.generated} news events`);
-      } else if (data?.message) {
-        toast.info(data.message);
-      } else {
-        toast.success('News generation triggered');
-      }
-
-      await supabase.rpc('log_admin_action', {
-        p_action_type: 'trigger_news_generation',
-        p_entity_type: 'news',
-        p_details: { generated: data?.generated || 0 }
-      });
+      toast.info('News generation disabled in simulation mode.');
     } catch (error: any) {
-      console.error('Error triggering news generation:', error);
       toast.error(error.message || 'Failed to trigger news generation');
     } finally {
       setIsGeneratingNews(false);
@@ -272,21 +134,9 @@ export const AdminTools = () => {
 
   const handleGeneratePriceHistory = async () => {
     setIsGeneratingHistory(true);
-    toast.info('Generating 4 months of price history for all assets... This may take several minutes.');
     try {
-      const response = await supabase.functions.invoke('generate-price-history');
-      
-      if (response.error) throw response.error;
-
-      toast.success(response.data?.message || 'Price history generation complete!');
-
-      await supabase.rpc('log_admin_action', {
-        p_action_type: 'generate_price_history',
-        p_entity_type: 'market',
-        p_details: { success: true }
-      });
+      toast.info('Price history generation disabled in simulation mode.');
     } catch (error: any) {
-      console.error('Error generating price history:', error);
       toast.error(error.message || 'Failed to generate price history (may still be running in background)');
     } finally {
       setIsGeneratingHistory(false);

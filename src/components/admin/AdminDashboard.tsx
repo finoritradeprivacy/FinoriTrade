@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { 
@@ -28,129 +27,33 @@ export const AdminDashboard = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchDashboardStats();
-    const interval = setInterval(fetchDashboardStats, 30000); // Refresh every 30s
-    return () => clearInterval(interval);
+    const baseStats: DashboardStats = {
+      totalUsers: 1,
+      activeUsers: 1,
+      newUsers24h: 0,
+      newUsers7d: 0,
+      newUsers30d: 0,
+      totalTrades: 0,
+      totalVolume: 0,
+      avgDailyLogins: 1,
+      topMarkets: [
+        { category: 'crypto', count: 0 },
+        { category: 'stocks', count: 0 },
+        { category: 'forex', count: 0 },
+      ],
+      largestPositions: [],
+      suspiciousActivity: [],
+      serverStatus: [
+        { name: 'Auth (Supabase)', status: 'online' },
+        { name: 'Trading Simulator', status: 'online' },
+        { name: 'Admin Backend', status: 'offline' },
+      ],
+    };
+    setStats(baseStats);
+    setLoading(false);
   }, []);
 
-  const fetchDashboardStats = async () => {
-    try {
-      // Fetch total users
-      const { count: totalUsers } = await supabase
-        .from('profiles')
-        .select('*', { count: 'exact', head: true });
-
-      // New users in different periods
-      const now = new Date();
-      const { count: newUsers24h } = await supabase
-        .from('profiles')
-        .select('*', { count: 'exact', head: true })
-        .gte('created_at', subHours(now, 24).toISOString());
-
-      const { count: newUsers7d } = await supabase
-        .from('profiles')
-        .select('*', { count: 'exact', head: true })
-        .gte('created_at', subDays(now, 7).toISOString());
-
-      const { count: newUsers30d } = await supabase
-        .from('profiles')
-        .select('*', { count: 'exact', head: true })
-        .gte('created_at', subDays(now, 30).toISOString());
-
-      // Active users (last 24h)
-      const { count: activeUsers } = await supabase
-        .from('profiles')
-        .select('*', { count: 'exact', head: true })
-        .gte('last_active_at', subHours(now, 24).toISOString());
-
-      // Total trades and volume
-      const { data: tradesData } = await supabase
-        .from('trades')
-        .select('total_value');
-      
-      const totalTrades = tradesData?.length || 0;
-      const totalVolume = tradesData?.reduce((sum, t) => sum + Number(t.total_value), 0) || 0;
-
-      // Top markets by trade count
-      const { data: marketsData } = await supabase
-        .from('trades')
-        .select('asset_id, assets!inner(category)')
-        .limit(1000);
-
-      const marketCounts: Record<string, number> = {};
-      marketsData?.forEach((t: any) => {
-        const cat = t.assets?.category || 'unknown';
-        marketCounts[cat] = (marketCounts[cat] || 0) + 1;
-      });
-
-      const topMarkets = Object.entries(marketCounts)
-        .map(([category, count]) => ({ category, count }))
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 5);
-
-      // Largest open positions
-      const { data: positionsData } = await supabase
-        .from('portfolios')
-        .select('quantity, average_buy_price, profiles!inner(nickname), assets!inner(symbol)')
-        .gt('quantity', 0)
-        .order('quantity', { ascending: false })
-        .limit(5);
-
-      const largestPositions = positionsData?.map((p: any) => ({
-        nickname: p.profiles?.nickname || 'Unknown',
-        asset: p.assets?.symbol || 'Unknown',
-        value: Number(p.quantity) * Number(p.average_buy_price)
-      })) || [];
-
-      // Suspicious activity (rapid trades, multiple accounts from same IP)
-      const { data: sessionsData } = await supabase
-        .from('user_sessions')
-        .select('ip_address, user_id')
-        .gte('logged_in_at', subDays(now, 7).toISOString());
-
-      const ipCounts: Record<string, Set<string>> = {};
-      sessionsData?.forEach((s: any) => {
-        if (s.ip_address) {
-          if (!ipCounts[s.ip_address]) ipCounts[s.ip_address] = new Set();
-          ipCounts[s.ip_address].add(s.user_id);
-        }
-      });
-
-      const multiAccountIPs = Object.entries(ipCounts)
-        .filter(([_, users]) => users.size > 1).length;
-
-      const suspiciousActivity = [
-        { type: 'Multi-account IPs', count: multiAccountIPs, severity: multiAccountIPs > 5 ? 'high' : 'medium' },
-      ];
-
-      // Server status (simulated for now)
-      const serverStatus = [
-        { name: 'Database', status: 'online' as const },
-        { name: 'Edge Functions', status: 'online' as const },
-        { name: 'Price Feed', status: 'online' as const },
-        { name: 'News Generator', status: 'online' as const },
-      ];
-
-      setStats({
-        totalUsers: totalUsers || 0,
-        activeUsers: activeUsers || 0,
-        newUsers24h: newUsers24h || 0,
-        newUsers7d: newUsers7d || 0,
-        newUsers30d: newUsers30d || 0,
-        totalTrades,
-        totalVolume,
-        avgDailyLogins: Math.round((activeUsers || 0) / 7),
-        topMarkets,
-        largestPositions,
-        suspiciousActivity,
-        serverStatus,
-      });
-    } catch (error) {
-      console.error('Error fetching dashboard stats:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const fetchDashboardStats = async () => {};
 
   if (loading) {
     return (

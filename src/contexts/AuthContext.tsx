@@ -23,42 +23,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [isAdmin] = useState(false);
   const navigate = useNavigate();
 
   // Check if email is verified
   const isEmailVerified = user?.email_confirmed_at !== null && user?.email_confirmed_at !== undefined;
-
-  // Update daily streak when user logs in
-  const updateDailyStreak = async (userId: string) => {
-    try {
-      await supabase.functions.invoke('manage-daily-challenges', {
-        body: { action: 'update_streak', userId }
-      });
-    } catch (error) {
-      console.error('Error updating daily streak:', error);
-    }
-  };
-
-  // Check if user is admin
-  const checkAdminRole = async (userId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', userId)
-        .eq('role', 'admin')
-        .maybeSingle();
-      
-      if (!error && data) {
-        setIsAdmin(true);
-      } else {
-        setIsAdmin(false);
-      }
-    } catch {
-      setIsAdmin(false);
-    }
-  };
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -67,18 +36,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setUser(session?.user ?? null);
         setLoading(false);
 
-        // Update streak and check admin role on sign in
-        if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') && session?.user) {
-          setTimeout(() => {
-            updateDailyStreak(session.user.id);
-            checkAdminRole(session.user.id);
-          }, 0);
-        }
-        
-        // Clear admin status on sign out
-        if (event === 'SIGNED_OUT') {
-          setIsAdmin(false);
-        }
       }
     );
 
@@ -86,10 +43,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
-      
-      if (session?.user) {
-        checkAdminRole(session.user.id);
-      }
     });
 
     return () => subscription.unsubscribe();

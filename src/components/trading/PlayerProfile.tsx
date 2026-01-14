@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase } from "@/integrations/supabase/client";
+import { useSimTrade } from "@/contexts/SimTradeContext";
 import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +21,7 @@ interface PlayerData {
 
 const PlayerProfile = () => {
   const { user } = useAuth();
+  const { usdtBalance, trades, holdings, prices } = useSimTrade();
   const [playerData, setPlayerData] = useState<PlayerData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -29,37 +30,32 @@ const PlayerProfile = () => {
       if (!user) return;
 
       try {
-        const [profileRes, statsRes, balanceRes] = await Promise.all([
-          supabase
-            .from("profiles")
-            .select("*")
-            .eq("id", user.id)
-            .single(),
-          supabase
-            .from("player_stats")
-            .select("*")
-            .eq("user_id", user.id)
-            .maybeSingle(),
-          supabase
-            .from("user_balances")
-            .select("*")
-            .eq("user_id", user.id)
-            .single(),
-        ]);
-
-        if (profileRes.data) {
-          setPlayerData({
-            nickname: profileRes.data.nickname,
-            email: profileRes.data.email,
-            level: statsRes.data?.level || 1,
-            total_xp: statsRes.data?.total_xp || 0,
-            achievements: Array.isArray(statsRes.data?.achievements) ? statsRes.data.achievements : [],
-            total_trades: profileRes.data.total_trades || 0,
-            win_rate: profileRes.data.win_rate || 0,
-            total_profit_loss: profileRes.data.total_profit_loss || 0,
-            usdt_balance: balanceRes.data?.usdt_balance || 0,
-          });
-        }
+        const nickname =
+          (user.user_metadata as any)?.nickname ||
+          (user.email ? String(user.email).split("@")[0] : "Trader");
+        const email = user.email || "";
+        const baseBalance = 100000;
+        const equity =
+          usdtBalance +
+          Object.entries(holdings).reduce((sum, [symbol, h]) => {
+            const px = prices[symbol] ?? h.averageBuyPrice ?? 0;
+            return sum + h.quantity * px;
+          }, 0);
+        const totalTrades = trades.length;
+        const totalProfitLoss = equity - baseBalance;
+        const level = 1 + Math.floor(totalTrades / 10);
+        const totalXp = totalTrades * 100;
+        setPlayerData({
+          nickname,
+          email,
+          level,
+          total_xp: totalXp,
+          achievements: [],
+          total_trades: totalTrades,
+          win_rate: 0,
+          total_profit_loss: totalProfitLoss,
+          usdt_balance: usdtBalance,
+        });
       } catch (error) {
         console.error("Error fetching player data:", error);
       } finally {
@@ -68,46 +64,7 @@ const PlayerProfile = () => {
     };
 
     fetchPlayerData();
-
-    // Subscribe to real-time updates
-    const channel = supabase
-      .channel("player-data-changes")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "player_stats",
-          filter: `user_id=eq.${user?.id}`,
-        },
-        () => fetchPlayerData()
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "profiles",
-          filter: `id=eq.${user?.id}`,
-        },
-        () => fetchPlayerData()
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "user_balances",
-          filter: `user_id=eq.${user?.id}`,
-        },
-        () => fetchPlayerData()
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user]);
+  }, [user, usdtBalance, trades, holdings, prices]);
 
   if (loading || !playerData) {
     return (

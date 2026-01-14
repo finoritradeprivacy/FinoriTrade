@@ -1,16 +1,30 @@
 import { useEffect, useRef, useState } from 'react';
-import { createChart, IChartApi, ISeriesApi, CandlestickData, Time, UTCTimestamp, CandlestickSeries, LineSeries, createSeriesMarkers } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, CandlestickData, Time, UTCTimestamp, CandlestickSeries, LineSeries, createSeriesMarkers, IPriceLine } from 'lightweight-charts';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { supabase } from '@/integrations/supabase/client';
+import { useSimTrade } from '@/contexts/SimTradeContext';
 import { TrendingUp, TrendingDown, Minus, Square, Type, RotateCcw, Trash2, Activity, BarChart3 } from 'lucide-react';
 import { toast } from 'sonner';
-interface TradingChartProps {
-  asset: any;
+
+interface Asset {
+  id: string;
+  symbol: string;
+  name: string;
+  category: string;
+  current_price: number;
+  price_change_24h?: number | null;
+  updated_at?: string;
+  [key: string]: any;
 }
+
+interface TradingChartProps {
+  asset: Asset;
+}
+
 type Timeframe = '1s' | '1m' | '5m' | '15m' | '1h' | '4h' | '1d' | '1w';
 type ChartType = 'candlestick' | 'line' | 'ohlc';
 type DrawingTool = 'none' | 'trendline' | 'horizontal' | 'rectangle' | 'text';
+
 interface Trade {
   id: string;
   type: 'buy' | 'sell';
@@ -18,6 +32,7 @@ interface Trade {
   amount: number;
   timestamp: number;
 }
+
 interface Drawing {
   id: string;
   type: DrawingTool;
@@ -27,14 +42,15 @@ interface Drawing {
   }>;
   text?: string;
 }
+
 export const TradingChart = ({
   asset
 }: TradingChartProps) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | any>(null);
+  const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   // Keep references to overlay elements so we can cleanly re-render drawings
-  const priceLinesRef = useRef<any[]>([]);
+  const priceLinesRef = useRef<IPriceLine[]>([]);
   const trendlineSeriesRef = useRef<Map<string, ISeriesApi<'Line'>>>(new Map());
   const markersRef = useRef<any>(null);
   const [timeframe, setTimeframe] = useState<Timeframe>('1s');
@@ -57,6 +73,7 @@ export const TradingChart = ({
   } | null>(null);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [priceCountdown, setPriceCountdown] = useState(1);
+  const { trades: ctxTrades } = useSimTrade();
 
   // Price update countdown - 1 second updates
   useEffect(() => {
@@ -243,142 +260,42 @@ export const TradingChart = ({
     const timeframeSeconds = getTimeframeSeconds(timeframe);
     const now = Math.floor(Date.now() / 1000);
     const [minCandles, maxCandles] = getCandleLimits(timeframe);
-    const tableName = getTableForTimeframe(timeframe);
     
-    try {
-      let chartData: CandlestickData[] = [];
-      
-      if (tableName === 'price_history') {
-        // For 1m-based timeframes, load raw 1m candles and aggregate
-        const candlesNeeded = maxCandles * (timeframeSeconds / 60) * 1.5; // Extra buffer for aggregation
-        const startTime = now - candlesNeeded * 60;
+    // Mock data generation
+    const chartData: CandlestickData[] = [];
+    let currentPrice = asset.current_price;
+    // Start from the past
+    let currentTime = now - (maxCandles * timeframeSeconds);
+
+    // Generate trend based on price change
+    const isBullish = (asset.price_change_24h || 0) > 0;
+    const volatility = currentPrice * 0.002; // 0.2% volatility
+
+    for (let i = 0; i < maxCandles; i++) {
+        // Add some noise and trend
+        const trend = isBullish ? volatility * 0.1 : -volatility * 0.1;
+        const move = (Math.random() - 0.5) * volatility + trend;
         
-        const { data: existingData, error } = await supabase
-          .from('price_history')
-          .select('*')
-          .eq('asset_id', asset.id)
-          .gte('time', startTime)
-          .order('time', { ascending: true })
-          .limit(50000);
+        const open = currentPrice;
+        const close = currentPrice + move;
+        const high = Math.max(open, close) + Math.random() * volatility * 0.5;
+        const low = Math.min(open, close) - Math.random() * volatility * 0.5;
         
-        if (error) throw error;
+        chartData.push({
+            time: currentTime as UTCTimestamp,
+            open,
+            high,
+            low,
+            close
+        });
         
-        if (existingData && existingData.length > 0) {
-          const rawData = existingData.map(d => ({
-            time: Number(d.time),
-            open: Number(d.open),
-            high: Number(d.high),
-            low: Number(d.low),
-            close: Number(d.close)
-          }));
-          
-          // Aggregate candles based on selected timeframe
-          const aggregated = aggregateCandles(rawData, timeframeSeconds);
-          
-          // Apply max limit
-          chartData = aggregated.slice(-maxCandles);
-          console.log(`Loaded ${existingData.length} 1m candles, aggregated to ${chartData.length} ${timeframe} candles`);
-        }
-      } else if (tableName === 'price_history_hourly') {
-        // For hourly-based timeframes (1h, 4h)
-        const candlesNeeded = timeframe === '4h' 
-          ? maxCandles * 4 // Need 4x hourly candles for 4h aggregation
-          : maxCandles;
-        
-        const { data: hourlyData, error } = await supabase
-          .from('price_history_hourly')
-          .select('*')
-          .eq('asset_id', asset.id)
-          .order('time', { ascending: false })
-          .limit(candlesNeeded);
-        
-        if (error) throw error;
-        
-        if (hourlyData && hourlyData.length > 0) {
-          const rawData = hourlyData.reverse().map(d => ({
-            time: Number(d.time),
-            open: Number(d.open),
-            high: Number(d.high),
-            low: Number(d.low),
-            close: Number(d.close)
-          }));
-          
-          if (timeframe === '4h') {
-            // Aggregate hourly to 4h
-            const aggregated = aggregateCandles(rawData, 14400);
-            chartData = aggregated.slice(-maxCandles);
-          } else {
-            chartData = rawData.slice(-maxCandles).map(d => ({
-              time: d.time as UTCTimestamp,
-              open: d.open,
-              high: d.high,
-              low: d.low,
-              close: d.close
-            }));
-          }
-          console.log(`Loaded ${hourlyData.length} hourly candles, result: ${chartData.length} ${timeframe} candles`);
-        }
-      } else if (tableName === 'price_history_daily') {
-        // For daily-based timeframes (1d, 1w)
-        const candlesNeeded = timeframe === '1w'
-          ? maxCandles * 7 // Need 7x daily candles for weekly aggregation
-          : maxCandles;
-        
-        const { data: dailyData, error } = await supabase
-          .from('price_history_daily')
-          .select('*')
-          .eq('asset_id', asset.id)
-          .order('time', { ascending: false })
-          .limit(candlesNeeded);
-        
-        if (error) throw error;
-        
-        if (dailyData && dailyData.length > 0) {
-          const rawData = dailyData.reverse().map(d => ({
-            time: Number(d.time),
-            open: Number(d.open),
-            high: Number(d.high),
-            low: Number(d.low),
-            close: Number(d.close)
-          }));
-          
-          if (timeframe === '1w') {
-            // Aggregate daily to weekly
-            const aggregated = aggregateCandles(rawData, 604800);
-            chartData = aggregated.slice(-maxCandles);
-          } else {
-            chartData = rawData.slice(-maxCandles).map(d => ({
-              time: d.time as UTCTimestamp,
-              open: d.open,
-              high: d.high,
-              low: d.low,
-              close: d.close
-            }));
-          }
-          console.log(`Loaded ${dailyData.length} daily candles, result: ${chartData.length} ${timeframe} candles`);
-        }
-      }
-      
-      // Ensure minimum candles requirement is met (log warning if not)
-      if (chartData.length < minCandles && chartData.length > 0) {
-        console.warn(`Only ${chartData.length} candles available for ${timeframe}, minimum is ${minCandles}`);
-      }
-      
-      if (chartData.length > 0) {
-        candlestickSeriesRef.current.setData(chartData);
-        setLastCandle(chartData[chartData.length - 1] || null);
-      } else {
-        candlestickSeriesRef.current.setData([]);
-        setLastCandle(null);
-        console.log('No history yet — will build from now');
-      }
-    } catch (error) {
-      console.error('Error loading price history:', error);
-      candlestickSeriesRef.current.setData([]);
-      setLastCandle(null);
-    } finally {
-      setIsLoadingData(false);
+        currentPrice = close;
+        currentTime += timeframeSeconds;
     }
+    
+    candlestickSeriesRef.current.setData(chartData);
+    setLastCandle(chartData[chartData.length - 1] || null);
+    setIsLoadingData(false);
   };
 
   // Get timeframe in seconds
@@ -407,161 +324,73 @@ export const TradingChart = ({
     setTimeframeCooldown(20);
   };
 
-  // Real-time price updates (subscribe to price_history for selected asset)
+  // Real-time price updates (simulated)
   useEffect(() => {
     if (!asset || !candlestickSeriesRef.current) return;
 
-    // Always reset last candle to the latest known DB candle to avoid carry-over
-    setLastCandle(null);
-    const channel = supabase.channel(`price-history-${asset.id}`).on('postgres_changes', {
-      event: '*',
-      schema: 'public',
-      table: 'price_history',
-      filter: `asset_id=eq.${asset.id}`
-    }, payload => {
-      const row: any = payload.new;
-      if (!row) return;
-      // Extra safeguard: ensure event belongs to the current asset
-      if (row.asset_id !== asset.id) {
-        return;
-      }
+    // Simulated tick interval
+    const interval = setInterval(() => {
+        if (!lastCandle) return;
 
-      // Extract full OHLC data from the database record
-      const open = Number(row.open);
-      const high = Number(row.high);
-      const low = Number(row.low);
-      const close = Number(row.close);
-      const time = Number(row.time);
-      if (!Number.isFinite(close) || close <= 0) return;
-      if (!Number.isFinite(time) || time <= 0) return;
+        const now = Math.floor(Date.now() / 1000);
+        const timeframeSeconds = getTimeframeSeconds(timeframe);
+        const bucketTime = Math.floor(now / timeframeSeconds) * timeframeSeconds as UTCTimestamp;
 
-      // Ignore obviously wrong ticks (>30% away from current known price)
-      const baseline = Number(asset.current_price);
-      if (Number.isFinite(baseline) && baseline > 0) {
-        const diff = Math.abs(close - baseline) / baseline;
-        if (diff > 0.3) {
-          console.warn('Ignored outlier tick', {
-            close,
-            baseline,
-            asset: asset.symbol,
-            row
-          });
-          return;
+        const currentPrice = lastCandle.close;
+        const volatility = currentPrice * 0.0005; // Smaller volatility for ticks
+        const move = (Math.random() - 0.5) * volatility;
+        const newPrice = currentPrice + move;
+
+        if (lastCandle.time === bucketTime) {
+            // Update current candle
+            const updatedCandle: CandlestickData = {
+                time: bucketTime,
+                open: lastCandle.open,
+                high: Math.max(lastCandle.high, newPrice),
+                low: Math.min(lastCandle.low, newPrice),
+                close: newPrice
+            };
+            candlestickSeriesRef.current.update(updatedCandle);
+            setLastCandle(updatedCandle);
+        } else {
+            // New candle
+            const newCandle: CandlestickData = {
+                time: bucketTime,
+                open: currentPrice,
+                high: newPrice,
+                low: newPrice,
+                close: newPrice
+            };
+            candlestickSeriesRef.current.update(newCandle);
+            setLastCandle(newCandle);
         }
-      }
-      updateCandleFromDb({
-        time,
-        open,
-        high,
-        low,
-        close
-      });
-    }).subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [asset, timeframe]);
 
-  // Update candle from database record with full OHLC data
-  const updateCandleFromDb = (dbCandle: {
-    time: number;
-    open: number;
-    high: number;
-    low: number;
-    close: number;
-  }) => {
-    if (!candlestickSeriesRef.current || !asset) return;
+    }, 1000);
 
-    // Get current timeframe interval
-    const timeframeSeconds = getTimeframeSeconds(timeframe);
+    return () => clearInterval(interval);
+  }, [asset, timeframe, lastCandle]);
 
-    // Calculate the bucket time for this candle based on current timeframe
-    const bucketTime = Math.floor(dbCandle.time / timeframeSeconds) * timeframeSeconds as UTCTimestamp;
-
-    // Sanity check
-    if (!Number.isFinite(dbCandle.close) || dbCandle.close <= 0) {
-      console.warn('Ignoring invalid candle', dbCandle);
-      return;
-    }
-
-    // If we have a last candle in the same bucket, merge with it
-    if (lastCandle && lastCandle.time === bucketTime) {
-      const updatedCandle: CandlestickData = {
-        time: bucketTime,
-        open: lastCandle.open,
-        // Keep original open
-        high: Math.max(lastCandle.high, dbCandle.high),
-        low: Math.min(lastCandle.low, dbCandle.low),
-        close: dbCandle.close // Latest close
-      };
-      candlestickSeriesRef.current.update(updatedCandle);
-      setLastCandle(updatedCandle);
-    } else {
-      // New candle bucket - use full OHLC from the database record
-      const newCandle: CandlestickData = {
-        time: bucketTime,
-        open: dbCandle.open,
-        high: dbCandle.high,
-        low: dbCandle.low,
-        close: dbCandle.close
-      };
-      candlestickSeriesRef.current.update(newCandle);
-      setLastCandle(newCandle);
-    }
-  };
 
   // Load trades for current asset
   useEffect(() => {
     if (!asset) return;
-    const loadTrades = async () => {
-      const {
-        data: {
-          user
-        }
-      } = await supabase.auth.getUser();
-      if (!user) return;
-      const {
-        data,
-        error
-      } = await supabase.from('trades').select('*').eq('user_id', user.id).eq('asset_id', asset.id).order('created_at', {
-        ascending: false
-      }).limit(50);
-      if (error) {
-        console.error('Error loading trades:', error);
-        return;
-      }
-      if (data) {
-        // Deduplicate trades by id
-        const uniqueTrades = new Map<string, Trade>();
-        data.forEach(trade => {
-          if (!uniqueTrades.has(trade.id)) {
-            uniqueTrades.set(trade.id, {
-              id: trade.id,
-              type: trade.side as 'buy' | 'sell',
-              price: trade.price,
-              amount: trade.quantity,
-              timestamp: new Date(trade.created_at).getTime() / 1000
-            });
-          }
-        });
-        setTrades(Array.from(uniqueTrades.values()));
-      }
-    };
-    loadTrades();
-
-    // Subscribe to new trades for this asset
-    const channel = supabase.channel(`trades-${asset.id}`).on('postgres_changes', {
-      event: 'INSERT',
-      schema: 'public',
-      table: 'trades',
-      filter: `asset_id=eq.${asset.id}`
-    }, () => {
-      loadTrades();
-    }).subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [asset?.id]);
+    const symbol = asset.symbol || asset.id;
+    const filtered = ctxTrades
+      .filter(t => t.symbol === symbol)
+      .slice(0, 50)
+      .map(t => ({
+        id: t.id,
+        type: t.side,
+        price: t.price,
+        amount: t.quantity,
+        timestamp: Math.floor((t.createdAt || Date.now()) / 1000),
+      }));
+    const unique = new Map<string, Trade>();
+    filtered.forEach(tr => {
+      if (!unique.has(tr.id)) unique.set(tr.id, tr);
+    });
+    setTrades(Array.from(unique.values()));
+  }, [asset?.id, ctxTrades]);
 
   // Note: Trade markers are now rendered together with drawings in the render drawings effect
 

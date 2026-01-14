@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAdmin } from "@/hooks/useAdmin";
-import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -44,15 +43,8 @@ const Admin = () => {
   }, [isAdmin]);
 
   const fetchUnreadNotifications = async () => {
-    try {
-      const { count } = await supabase
-        .from("admin_notifications")
-        .select("*", { count: "exact", head: true })
-        .eq("is_read", false);
-      setUnreadCount(count || 0);
-    } catch (error) {
-      console.error("Error fetching notifications:", error);
-    }
+    // Mock notifications count
+    setUnreadCount(3);
   };
 
   if (adminLoading || (!isAdmin && !adminLoading)) {

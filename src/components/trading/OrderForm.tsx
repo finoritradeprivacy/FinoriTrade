@@ -1,12 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useSimTrade } from "@/contexts/SimTradeContext";
 import { toast } from "sonner";
 import { z } from "zod";
 import { AlertTriangle, Mail } from "lucide-react";
@@ -43,6 +43,23 @@ const OrderForm = ({ asset, onTradeSuccess }: OrderFormProps) => {
   const [stopPrice, setStopPrice] = useState("");
   const [loading, setLoading] = useState(false);
   const [sendingEmail, setSendingEmail] = useState(false);
+  const [ownedQuantity, setOwnedQuantity] = useState<number | null>(null);
+  const { prices, placeMarketOrder, placeLimitOrder, placeStopOrder } = useSimTrade();
+
+  useEffect(() => {
+    const key = `sim_holding_${user?.id}_${asset?.symbol}`;
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        setOwnedQuantity(Number(parsed?.quantity) || 0);
+      } catch {
+        setOwnedQuantity(null);
+      }
+    } else {
+      setOwnedQuantity(null);
+    }
+  }, [user?.id, asset?.symbol]);
 
   const handleResendEmail = async () => {
     setSendingEmail(true);
@@ -81,79 +98,49 @@ const OrderForm = ({ asset, onTradeSuccess }: OrderFormProps) => {
         return;
       }
 
-      const orderPrice = orderType === "market" ? Number(asset.current_price) : Number(price);
+      const current = prices[asset.symbol] || Number(asset.current_price) || 0;
+      const orderPrice = orderType === "market" ? current : Number(price);
       const orderQuantity = validationResult.data.quantity;
 
       if (orderType === "market") {
-        if (side === 'sell') {
-          const { data: portfolio, error: portfolioError } = await supabase
-            .from('portfolios')
-            .select('quantity')
-            .eq('user_id', user.id)
-            .eq('asset_id', asset.id)
-            .single();
-
-          if (portfolioError || !portfolio || portfolio.quantity < orderQuantity) {
+        if (side === "sell") {
+          if (ownedQuantity !== null && ownedQuantity < orderQuantity) {
             toast.error("You don't own enough of this asset to sell");
             setLoading(false);
             return;
           }
         }
-        // Use atomic database function for market orders
-        const { data: orderId, error: rpcError } = await supabase.rpc('process_market_order', {
-          p_user_id: user.id,
-          p_asset_id: asset.id,
-          p_side: side,
-          p_quantity: orderQuantity,
-          p_price: orderPrice
-        });
-
-        if (rpcError) {
-          if (rpcError.message.includes('Insufficient balance')) {
-            toast.error("Insufficient balance");
-          } else if (rpcError.message.includes('Insufficient portfolio')) {
-            toast.error("You don't own enough of this asset to sell");
-          } else {
-            throw rpcError;
-          }
+        const res = placeMarketOrder(asset.symbol, side, orderQuantity, orderPrice);
+        if (!res.ok) {
+          toast.error(res.error || "Order failed");
           setLoading(false);
           return;
         }
-
         toast.success(`${side === "buy" ? "Bought" : "Sold"} ${orderQuantity} ${asset.symbol}`);
         onTradeSuccess();
       } else {
-        // For limit/stop orders, insert directly
-        if (side === 'sell') {
-          const { data: portfolio, error: portfolioError } = await supabase
-            .from('portfolios')
-            .select('quantity')
-            .eq('user_id', user.id)
-            .eq('asset_id', asset.id)
-            .single();
-
-          if (portfolioError || !portfolio || portfolio.quantity < orderQuantity) {
+        if (side === "sell") {
+          if (ownedQuantity !== null && ownedQuantity < orderQuantity) {
             toast.error("You don't own enough of this asset to sell");
             setLoading(false);
             return;
           }
         }
-        
-        const { error: orderError } = await supabase
-          .from("orders")
-          .insert({
-            user_id: user.id,
-            asset_id: asset.id,
-            order_type: orderType,
-            order_subtype: orderSubtype,
-            side: side,
-            quantity: orderQuantity,
-            price: orderPrice,
-            stop_price: orderType === "stop" ? Number(stopPrice) : null,
-            status: "pending",
-          });
-
-        if (orderError) throw orderError;
+        if (orderType === "limit") {
+          const res = placeLimitOrder(asset.symbol, side, orderQuantity, orderPrice);
+          if (!res.ok) {
+            toast.error(res.error || "Order failed");
+            setLoading(false);
+            return;
+          }
+        } else {
+          const res = placeStopOrder(asset.symbol, side, orderQuantity, Number(stopPrice), orderPrice);
+          if (!res.ok) {
+            toast.error(res.error || "Order failed");
+            setLoading(false);
+            return;
+          }
+        }
 
         const orderTypeLabel = orderType === "stop" ? "Stop" : orderSubtype === "ioc" ? "IOC" : orderSubtype === "fok" ? "FOK" : "Limit";
         toast.success(`${orderTypeLabel} order placed successfully`);

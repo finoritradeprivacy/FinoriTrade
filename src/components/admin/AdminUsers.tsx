@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -70,50 +69,7 @@ export const AdminUsers = () => {
   const fetchUsers = async () => {
     setLoading(true);
     try {
-      // Fetch users with all related data
-      const { data: profilesData, error: profilesError } = await supabase
-        .from('profiles')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (profilesError) throw profilesError;
-
-      // Fetch balances
-      const { data: balancesData } = await supabase.from('user_balances').select('*');
-      const balanceMap = new Map(balancesData?.map(b => [b.user_id, b.usdt_balance]) || []);
-
-      // Fetch player stats
-      const { data: statsData } = await supabase.from('player_stats').select('*');
-      const statsMap = new Map(statsData?.map(s => [s.user_id, s]) || []);
-
-      // Fetch admin roles
-      const { data: rolesData } = await supabase.from('user_roles').select('*');
-      const adminSet = new Set(rolesData?.filter(r => r.role === 'admin').map(r => r.user_id) || []);
-
-      // Fetch bans
-      const { data: bansData } = await supabase
-        .from('user_bans')
-        .select('*')
-        .eq('is_active', true);
-      const bannedSet = new Set(bansData?.map(b => b.user_id) || []);
-
-      const users: User[] = profilesData?.map(p => ({
-        id: p.id,
-        nickname: p.nickname,
-        email: p.email,
-        created_at: p.created_at,
-        last_active_at: p.last_active_at,
-        total_trades: p.total_trades,
-        total_profit_loss: p.total_profit_loss,
-        win_rate: p.win_rate,
-        usdt_balance: balanceMap.get(p.id) || 0,
-        level: statsMap.get(p.id)?.level || 1,
-        total_xp: statsMap.get(p.id)?.total_xp || 0,
-        is_admin: adminSet.has(p.id),
-        is_banned: bannedSet.has(p.id),
-      })) || [];
-
-      setUsers(users);
+      setUsers([]);
     } catch (error) {
       console.error('Error fetching users:', error);
       toast.error('Failed to fetch users');
@@ -122,14 +78,8 @@ export const AdminUsers = () => {
     }
   };
 
-  const fetchUserSessions = async (userId: string) => {
-    const { data } = await supabase
-      .from('user_sessions')
-      .select('*')
-      .eq('user_id', userId)
-      .order('logged_in_at', { ascending: false })
-      .limit(10);
-    setUserSessions(data || []);
+  const fetchUserSessions = async () => {
+    setUserSessions([]);
   };
 
   const handleViewUser = async (user: User) => {
@@ -142,31 +92,9 @@ export const AdminUsers = () => {
     if (!selectedUser || !banReason) return;
 
     try {
-      const expiresAt = banType === 'permanent' 
-        ? null 
-        : new Date(Date.now() + parseInt(banDuration) * 24 * 60 * 60 * 1000).toISOString();
-
-      const { error } = await supabase.from('user_bans').insert({
-        user_id: selectedUser.id,
-        ban_type: banType,
-        reason: banReason,
-        expires_at: expiresAt,
-      });
-
-      if (error) throw error;
-
-      // Log admin action
-      await supabase.rpc('log_admin_action', {
-        p_action_type: 'ban_user',
-        p_entity_type: 'user',
-        p_entity_id: selectedUser.id,
-        p_details: { ban_type: banType, reason: banReason, duration: banDuration }
-      });
-
-      toast.success(`User ${selectedUser.nickname} has been banned`);
+      toast.info('User banning is disabled in simulation mode');
       setShowBanDialog(false);
       setBanReason('');
-      fetchUsers();
     } catch (error) {
       console.error('Error banning user:', error);
       toast.error('Failed to ban user');
@@ -175,22 +103,7 @@ export const AdminUsers = () => {
 
   const handleUnbanUser = async (userId: string) => {
     try {
-      const { error } = await supabase
-        .from('user_bans')
-        .update({ is_active: false })
-        .eq('user_id', userId)
-        .eq('is_active', true);
-
-      if (error) throw error;
-
-      await supabase.rpc('log_admin_action', {
-        p_action_type: 'unban_user',
-        p_entity_type: 'user',
-        p_entity_id: userId,
-      });
-
-      toast.success('User has been unbanned');
-      fetchUsers();
+      toast.info('User unban is disabled in simulation mode');
     } catch (error) {
       console.error('Error unbanning user:', error);
       toast.error('Failed to unban user');
@@ -201,42 +114,8 @@ export const AdminUsers = () => {
     if (!selectedUser) return;
 
     try {
-      // Reset balance
-      await supabase
-        .from('user_balances')
-        .update({ usdt_balance: 100000, locked_balance: 0 })
-        .eq('user_id', selectedUser.id);
-
-      // Reset stats
-      await supabase
-        .from('profiles')
-        .update({ total_trades: 0, total_profit_loss: 0, win_rate: 0 })
-        .eq('id', selectedUser.id);
-
-      // Reset player stats
-      await supabase
-        .from('player_stats')
-        .update({ total_xp: 0, level: 1 })
-        .eq('user_id', selectedUser.id);
-
-      // Delete portfolios
-      await supabase.from('portfolios').delete().eq('user_id', selectedUser.id);
-
-      // Delete orders
-      await supabase.from('orders').delete().eq('user_id', selectedUser.id);
-
-      // Delete trades
-      await supabase.from('trades').delete().eq('user_id', selectedUser.id);
-
-      await supabase.rpc('log_admin_action', {
-        p_action_type: 'reset_account',
-        p_entity_type: 'user',
-        p_entity_id: selectedUser.id,
-      });
-
-      toast.success(`Account ${selectedUser.nickname} has been reset`);
+      toast.info('Account reset is disabled in simulation mode');
       setShowResetDialog(false);
-      fetchUsers();
     } catch (error) {
       console.error('Error resetting account:', error);
       toast.error('Failed to reset account');
@@ -247,30 +126,8 @@ export const AdminUsers = () => {
     if (!selectedUser) return;
 
     try {
-      // Remove existing role
-      await supabase
-        .from('user_roles')
-        .delete()
-        .eq('user_id', selectedUser.id);
-
-      // Add new role if not 'user'
-      if (newRole !== 'user') {
-        await supabase.from('user_roles').insert({
-          user_id: selectedUser.id,
-          role: newRole,
-        });
-      }
-
-      await supabase.rpc('log_admin_action', {
-        p_action_type: 'change_role',
-        p_entity_type: 'user',
-        p_entity_id: selectedUser.id,
-        p_details: { new_role: newRole }
-      });
-
-      toast.success(`Role changed to ${newRole}`);
+      toast.info('Role changes are disabled in simulation mode');
       setShowRoleDialog(false);
-      fetchUsers();
     } catch (error) {
       console.error('Error changing role:', error);
       toast.error('Failed to change role');
@@ -281,23 +138,8 @@ export const AdminUsers = () => {
     if (!selectedUser) return;
 
     try {
-      // Use the admin RPC function to delete account (bypasses RLS)
-      const { error } = await supabase.rpc('admin_delete_user_account', {
-        p_user_id: selectedUser.id
-      });
-
-      if (error) throw error;
-
-      await supabase.rpc('log_admin_action', {
-        p_action_type: 'delete_account',
-        p_entity_type: 'user',
-        p_entity_id: selectedUser.id,
-        p_details: { nickname: selectedUser.nickname, email: selectedUser.email }
-      });
-
-      toast.success(`Account ${selectedUser.nickname} has been deleted`);
+      toast.info('Account deletion is disabled in simulation mode');
       setShowDeleteDialog(false);
-      fetchUsers();
     } catch (error) {
       console.error('Error deleting account:', error);
       toast.error('Failed to delete account');
@@ -306,39 +148,7 @@ export const AdminUsers = () => {
 
   const handleExportUserData = async (user: User) => {
     try {
-      const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-      const { data: balance } = await supabase.from('user_balances').select('*').eq('user_id', user.id).single();
-      const { data: stats } = await supabase.from('player_stats').select('*').eq('user_id', user.id).single();
-      const { data: portfolios } = await supabase.from('portfolios').select('*').eq('user_id', user.id);
-      const { data: orders } = await supabase.from('orders').select('*').eq('user_id', user.id);
-      const { data: trades } = await supabase.from('trades').select('*').eq('user_id', user.id);
-      const { data: sessions } = await supabase.from('user_sessions').select('*').eq('user_id', user.id);
-
-      const exportData = {
-        profile,
-        balance,
-        stats,
-        portfolios,
-        orders,
-        trades,
-        sessions,
-        exported_at: new Date().toISOString(),
-      };
-
-      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `user_${user.nickname}_data.json`;
-      a.click();
-
-      await supabase.rpc('log_admin_action', {
-        p_action_type: 'export_user_data',
-        p_entity_type: 'user',
-        p_entity_id: user.id,
-      });
-
-      toast.success('User data exported (GDPR)');
+      toast.info('User data export is disabled in simulation mode');
     } catch (error) {
       console.error('Error exporting user data:', error);
       toast.error('Failed to export user data');

@@ -48,8 +48,9 @@ export default function Auth() {
       if (error) throw error;
       toast.success("Successfully logged in!");
       navigate("/trade");
-    } catch (error: any) {
-      toast.error(error.message || "Failed to login");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to login";
+      toast.error(message);
     } finally {
       setIsLoading(false);
     }
@@ -86,9 +87,10 @@ export default function Auth() {
 
       setVerificationStep(true);
       toast.success("Verification code sent! Please check your email.");
-    } catch (error: any) {
+    } catch (error) {
       console.error("Registration error:", error);
-      toast.error(error.message || "Failed to register");
+      const message = error instanceof Error ? error.message : "Failed to register";
+      toast.error(message);
     } finally {
       setIsLoading(false);
     }
@@ -121,9 +123,10 @@ export default function Auth() {
       if (loginError) throw loginError;
       
       navigate("/trade");
-    } catch (error: any) {
+    } catch (error) {
       console.error("Verification error:", error);
-      toast.error(error.message || "Failed to verify email");
+      const message = error instanceof Error ? error.message : "Failed to verify email";
+      toast.error(message);
     } finally {
       setIsLoading(false);
     }

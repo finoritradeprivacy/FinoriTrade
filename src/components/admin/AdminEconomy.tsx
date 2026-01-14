@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
+import { useSimTrade } from '@/contexts/SimTradeContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -43,6 +44,8 @@ interface StockAsset {
 }
 
 export const AdminEconomy = () => {
+  const { user } = useAuth();
+  const { modifyBalance, usdtBalance } = useSimTrade();
   const [settings, setSettings] = useState<TradingSetting[]>([]);
   const [topTraders, setTopTraders] = useState<TopTrader[]>([]);
   const [stockAssets, setStockAssets] = useState<StockAsset[]>([]);
@@ -61,58 +64,43 @@ export const AdminEconomy = () => {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [user, usdtBalance]);
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      // Fetch trading settings
-      const { data: settingsData } = await supabase
-        .from('trading_settings')
-        .select('*')
-        .order('setting_key');
-      setSettings(settingsData || []);
+      // Mock trading settings
+      const mockSettings: TradingSetting[] = [
+        { id: '1', setting_key: 'trading_enabled', setting_value: true, description: 'Enable/Disable Trading' },
+        { id: '2', setting_key: 'max_leverage', setting_value: 100, description: 'Maximum Leverage' },
+        { id: '3', setting_key: 'market_fee', setting_value: 0.001, description: 'Market Order Fee' },
+      ];
+      setSettings(mockSettings);
 
-      // Fetch stock assets with dividend yields
-      const { data: stocksData } = await supabase
-        .from('assets')
-        .select('id, symbol, name, dividend_yield, current_price')
-        .eq('category', 'stocks')
-        .eq('is_active', true)
-        .order('symbol');
-      setStockAssets(stocksData || []);
-      // Fetch top traders
-      const { data: tradersData } = await supabase
-        .from('profiles')
-        .select('id, nickname, total_profit_loss, total_trades, win_rate')
-        .order('total_profit_loss', { ascending: false })
-        .limit(10);
+      // Mock stock assets
+      const mockStocks: StockAsset[] = [
+        { id: 'AAPL', symbol: 'AAPL', name: 'Apple Inc.', dividend_yield: 0.5, current_price: 150 },
+        { id: 'MSFT', symbol: 'MSFT', name: 'Microsoft Corp.', dividend_yield: 0.8, current_price: 300 },
+        { id: 'GOOGL', symbol: 'GOOGL', name: 'Alphabet Inc.', dividend_yield: 0, current_price: 2800 },
+      ];
+      setStockAssets(mockStocks);
 
-      // Fetch levels
-      const { data: statsData } = await supabase.from('player_stats').select('user_id, level');
-      const levelMap = new Map(statsData?.map(s => [s.user_id, s.level]) || []);
+      // Mock top traders
+      const mockTraders: TopTrader[] = [
+        { id: 't1', nickname: 'CryptoKing', total_profit_loss: 50000, total_trades: 120, win_rate: 65, level: 10 },
+        { id: 't2', nickname: 'HodlerPro', total_profit_loss: 25000, total_trades: 80, win_rate: 55, level: 8 },
+        { id: user?.id || 'local', nickname: 'You', total_profit_loss: 0, total_trades: 0, win_rate: 0, level: 1 },
+      ];
+      setTopTraders(mockTraders);
 
-      const traders: TopTrader[] = tradersData?.map(t => ({
-        id: t.id,
-        nickname: t.nickname,
-        total_profit_loss: Number(t.total_profit_loss) || 0,
-        total_trades: t.total_trades || 0,
-        win_rate: Number(t.win_rate) || 0,
-        level: levelMap.get(t.id) || 1,
-      })) || [];
-      setTopTraders(traders);
+      // Mock users list
+      const mockUsers = [
+        { id: user?.id || 'local', nickname: 'You', balance: usdtBalance, level: 1 },
+        { id: 'u2', nickname: 'Alice', balance: 5000, level: 2 },
+        { id: 'u3', nickname: 'Bob', balance: 1000, level: 1 },
+      ];
+      setUsers(mockUsers);
 
-      // Fetch all users for balance/level modification
-      const { data: usersData } = await supabase.from('profiles').select('id, nickname');
-      const { data: balancesData } = await supabase.from('user_balances').select('user_id, usdt_balance');
-      const balanceMap = new Map(balancesData?.map(b => [b.user_id, b.usdt_balance]) || []);
-
-      setUsers(usersData?.map(u => ({
-        id: u.id,
-        nickname: u.nickname,
-        balance: balanceMap.get(u.id) || 0,
-        level: levelMap.get(u.id) || 1,
-      })) || []);
     } catch (error) {
       console.error('Error fetching economy data:', error);
       toast.error('Failed to fetch economy data');
@@ -123,20 +111,8 @@ export const AdminEconomy = () => {
 
   const handleUpdateSetting = async (setting: TradingSetting, newValue: any) => {
     try {
-      await supabase
-        .from('trading_settings')
-        .update({ setting_value: newValue })
-        .eq('id', setting.id);
-
-      await supabase.rpc('log_admin_action', {
-        p_action_type: 'update_trading_setting',
-        p_entity_type: 'trading_settings',
-        p_entity_id: setting.id,
-        p_details: { key: setting.setting_key, old_value: setting.setting_value, new_value: newValue }
-      });
-
-      toast.success(`Setting "${setting.setting_key}" updated`);
-      fetchData();
+      setSettings(prev => prev.map(s => s.id === setting.id ? { ...s, setting_value: newValue } : s));
+      toast.success(`Setting "${setting.setting_key}" updated (Simulated)`);
     } catch (error) {
       console.error('Error updating setting:', error);
       toast.error('Failed to update setting');
@@ -150,30 +126,16 @@ export const AdminEconomy = () => {
       const amount = parseFloat(modifyAmount);
       const change = modifyType === 'add' ? amount : -amount;
 
-      const { data: currentBalance } = await supabase
-        .from('user_balances')
-        .select('usdt_balance')
-        .eq('user_id', selectedUserId)
-        .single();
+      if (selectedUserId === user?.id || selectedUserId === 'local') {
+        modifyBalance(change);
+        toast.success(`Balance ${modifyType === 'add' ? 'increased' : 'decreased'} by $${amount.toLocaleString()}`);
+      } else {
+        toast.success(`Balance modified for user ${selectedUserId} (Simulated)`);
+        setUsers(prev => prev.map(u => u.id === selectedUserId ? { ...u, balance: Math.max(0, u.balance + change) } : u));
+      }
 
-      const newBalance = Math.max(0, (currentBalance?.usdt_balance || 0) + change);
-
-      await supabase
-        .from('user_balances')
-        .update({ usdt_balance: newBalance })
-        .eq('user_id', selectedUserId);
-
-      await supabase.rpc('log_admin_action', {
-        p_action_type: 'modify_balance',
-        p_entity_type: 'user',
-        p_entity_id: selectedUserId,
-        p_details: { change, new_balance: newBalance }
-      });
-
-      toast.success(`Balance ${modifyType === 'add' ? 'increased' : 'decreased'} by $${amount.toLocaleString()}`);
       setShowModifyBalanceDialog(false);
       setModifyAmount('');
-      fetchData();
     } catch (error) {
       console.error('Error modifying balance:', error);
       toast.error('Failed to modify balance');
@@ -192,299 +154,211 @@ export const AdminEconomy = () => {
       
       const change = modifyType === 'add' ? amount : -amount;
 
-      const { data: currentStats } = await supabase
-        .from('player_stats')
-        .select('level, total_xp')
-        .eq('user_id', selectedUserId)
-        .single();
-
-      const currentLevel = currentStats?.level || 1;
-      const newLevel = Math.max(1, Math.min(20000, currentLevel + change));
+      toast.success(`Level modified for user ${selectedUserId} (Simulated)`);
+      setUsers(prev => prev.map(u => u.id === selectedUserId ? { ...u, level: Math.max(1, u.level + change) } : u));
       
-      // Get the correct XP needed for the target level using the database function
-      const { data: xpData, error: xpError } = await supabase.rpc('calculate_total_xp_for_level', {
-        target_level: newLevel
-      });
-      
-      if (xpError) {
-        console.error('Error calculating XP:', xpError);
-        toast.error('Failed to calculate XP for level');
-        return;
-      }
-      
-      const newXp = xpData || 0;
-      
-      if (newXp === 0 && newLevel > 1) {
-        toast.error('Failed to calculate XP - please try a smaller level change');
-        return;
-      }
-
-      const { error: updateError } = await supabase
-        .from('player_stats')
-        .update({ total_xp: newXp })
-        .eq('user_id', selectedUserId);
-
-      if (updateError) {
-        console.error('Error updating stats:', updateError);
-        toast.error('Failed to update player stats');
-        return;
-      }
-
-      await supabase.rpc('log_admin_action', {
-        p_action_type: 'modify_level',
-        p_entity_type: 'user',
-        p_entity_id: selectedUserId,
-        p_details: { old_level: currentLevel, new_level: newLevel, new_xp: newXp }
-      });
-
-      toast.success(`Level changed from ${currentLevel} to ${newLevel}`);
       setShowModifyLevelDialog(false);
       setModifyAmount('');
-      fetchData();
     } catch (error) {
       console.error('Error modifying level:', error);
       toast.error('Failed to modify level');
     }
   };
 
-  const handleUpdateDividendYield = async () => {
+  const handleDistributeDividend = async () => {
     if (!selectedStock) return;
-
+    
     try {
-      const newYield = dividendYield / 100; // Convert from percent to decimal
-
-      await supabase
-        .from('assets')
-        .update({ dividend_yield: newYield })
-        .eq('id', selectedStock.id);
-
-      await supabase.rpc('log_admin_action', {
-        p_action_type: 'update_dividend_yield',
-        p_entity_type: 'asset',
-        p_entity_id: selectedStock.id,
-        p_details: { 
-          symbol: selectedStock.symbol, 
-          old_yield: selectedStock.dividend_yield, 
-          new_yield: newYield 
-        }
-      });
-
-      toast.success(`Dividend yield for ${selectedStock.symbol} updated to ${dividendYield}%`);
+      toast.success(`Dividends distributed for ${selectedStock.symbol} at ${dividendYield}% (Simulated)`);
       setShowDividendDialog(false);
-      fetchData();
     } catch (error) {
-      console.error('Error updating dividend yield:', error);
-      toast.error('Failed to update dividend yield');
+      console.error('Error distributing dividend:', error);
+      toast.error('Failed to distribute dividend');
     }
   };
 
-  const getSettingInput = (setting: TradingSetting) => {
-    const value = setting.setting_value;
-    const key = setting.setting_key;
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <RefreshCw className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
-    // Simple number settings
-    if (['initial_balance', 'max_leverage', 'max_position_size', 'max_open_positions', 'global_stop_loss_percent', 'trading_fee_percent'].includes(key)) {
-      return (
-        <Input 
-          type="number"
-          value={typeof value === 'object' ? JSON.stringify(value) : value}
-          onChange={(e) => handleUpdateSetting(setting, parseFloat(e.target.value) || 0)}
-          className="w-32"
-        />
-      );
-    }
-
-    // Complex object settings - just show a summary
-    if (typeof value === 'object') {
-      return (
-        <span className="text-sm text-muted-foreground font-mono">
-          {JSON.stringify(value)}
-        </span>
-      );
-    }
-
-    return <span>{String(value)}</span>;
-  };
-
-  const filteredUsers = users.filter(u => 
-    u.nickname.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredUsers = users.filter(user => 
+    user.nickname.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    user.id.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const filteredStocks = stockAssets.filter(s =>
-    s.symbol.toLowerCase().includes(stockSearchTerm.toLowerCase()) ||
-    s.name.toLowerCase().includes(stockSearchTerm.toLowerCase())
+  const filteredStocks = stockAssets.filter(stock =>
+    stock.symbol.toLowerCase().includes(stockSearchTerm.toLowerCase()) ||
+    stock.name.toLowerCase().includes(stockSearchTerm.toLowerCase())
   );
 
   return (
     <div className="space-y-6">
-      {/* Risk Management Settings */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Settings className="h-5 w-5" />
-            Trading & Risk Settings
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {settings.map((setting) => (
-              <div key={setting.id} className="flex items-center justify-between p-4 bg-muted/30 rounded-lg">
-                <div>
-                  <p className="font-medium capitalize">{setting.setting_key.replace(/_/g, ' ')}</p>
-                  <p className="text-sm text-muted-foreground">{setting.description}</p>
-                </div>
-                {getSettingInput(setting)}
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total System Balance</CardTitle>
+            <DollarSign className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              ${users.reduce((sum, u) => sum + u.balance, 0).toLocaleString()}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Across {users.length} users
+            </p>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Active Settings</CardTitle>
+            <Settings className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{settings.length}</div>
+            <p className="text-xs text-muted-foreground">
+              Global configuration keys
+            </p>
+          </CardContent>
+        </Card>
 
-      {/* Balance & Level Management */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Top Trader</CardTitle>
+            <Trophy className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{topTraders[0]?.nickname || 'None'}</div>
+            <p className="text-xs text-muted-foreground">
+              ${topTraders[0]?.total_profit_loss.toLocaleString() || '0'} Profit
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Global Trading Settings</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Setting</TableHead>
+                  <TableHead>Value</TableHead>
+                  <TableHead>Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {settings.map((setting) => (
+                  <TableRow key={setting.id}>
+                    <TableCell>
+                      <div className="font-medium">{setting.setting_key}</div>
+                      <div className="text-xs text-muted-foreground">{setting.description}</div>
+                    </TableCell>
+                    <TableCell>{String(setting.setting_value)}</TableCell>
+                    <TableCell>
+                      {typeof setting.setting_value === 'boolean' ? (
+                        <Switch 
+                          checked={setting.setting_value}
+                          onCheckedChange={(checked) => handleUpdateSetting(setting, checked)}
+                        />
+                      ) : (
+                        <Button variant="ghost" size="sm" onClick={() => {
+                          const newValue = prompt('Enter new value:', String(setting.setting_value));
+                          if (newValue !== null) handleUpdateSetting(setting, newValue);
+                        }}>
+                          Edit
+                        </Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Top Traders</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Trader</TableHead>
+                  <TableHead className="text-right">Profit/Loss</TableHead>
+                  <TableHead className="text-right">Win Rate</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {topTraders.map((trader) => (
+                  <TableRow key={trader.id}>
+                    <TableCell>
+                      <div className="font-medium">{trader.nickname}</div>
+                      <div className="text-xs text-muted-foreground">Level {trader.level}</div>
+                    </TableCell>
+                    <TableCell className={`text-right ${trader.total_profit_loss >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                      ${trader.total_profit_loss.toLocaleString()}
+                    </TableCell>
+                    <TableCell className="text-right">{trader.win_rate}%</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </div>
+
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <DollarSign className="h-5 w-5" />
-            Balance & Level Management
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <Input
-              placeholder="Search user..."
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>User Management</CardTitle>
+          <div className="w-64">
+            <Input 
+              placeholder="Search users..." 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
-            <div className="max-h-64 overflow-y-auto space-y-2">
-              {filteredUsers.slice(0, 20).map((user) => (
-                <div key={user.id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
-                  <div>
-                    <p className="font-medium">{user.nickname}</p>
-                    <p className="text-sm text-muted-foreground">
-                      Balance: ${user.balance.toLocaleString()} | Level: {user.level}
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button 
-                      size="sm" 
-                      variant="outline"
-                      onClick={() => { 
-                        setSelectedUserId(user.id); 
-                        setModifyType('add');
-                        setModifyAmount('');
-                        setShowModifyBalanceDialog(true); 
-                      }}
-                    >
-                      <DollarSign className="h-4 w-4 mr-1" />
-                      Balance
-                    </Button>
-                    <Button 
-                      size="sm" 
-                      variant="outline"
-                      onClick={() => { 
-                        setSelectedUserId(user.id); 
-                        setModifyType('add');
-                        setModifyAmount('');
-                        setShowModifyLevelDialog(true); 
-                      }}
-                    >
-                      <Zap className="h-4 w-4 mr-1" />
-                      Level
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
           </div>
-        </CardContent>
-      </Card>
-
-      {/* Dividend Management */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Percent className="h-5 w-5 text-green-500" />
-            Stock Dividend Yields
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <Input
-              placeholder="Search stocks..."
-              value={stockSearchTerm}
-              onChange={(e) => setStockSearchTerm(e.target.value)}
-            />
-            <div className="max-h-64 overflow-y-auto space-y-2">
-              {filteredStocks.map((stock) => (
-                <div key={stock.id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
-                  <div>
-                    <p className="font-medium">{stock.symbol}</p>
-                    <p className="text-sm text-muted-foreground">{stock.name}</p>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
-                      <p className="text-sm text-muted-foreground">Current yield</p>
-                      <Badge variant={stock.dividend_yield > 0 ? 'default' : 'secondary'} className={stock.dividend_yield > 0 ? 'bg-green-500/20 text-green-400' : ''}>
-                        {(stock.dividend_yield * 100).toFixed(1)}%
-                      </Badge>
-                    </div>
-                    <Button 
-                      size="sm" 
-                      variant="outline"
-                      onClick={() => { 
-                        setSelectedStock(stock); 
-                        setDividendYield(stock.dividend_yield * 100);
-                        setShowDividendDialog(true); 
-                      }}
-                    >
-                      <TrendingUp className="h-4 w-4 mr-1" />
-                      Edit
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Leaderboard */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Trophy className="h-5 w-5 text-yellow-500" />
-            Top Traders Leaderboard
-          </CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Rank</TableHead>
-                <TableHead>Trader</TableHead>
+                <TableHead>User</TableHead>
+                <TableHead>Balance</TableHead>
                 <TableHead>Level</TableHead>
-                <TableHead>Total P/L</TableHead>
-                <TableHead>Trades</TableHead>
-                <TableHead>Win Rate</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {topTraders.map((trader, index) => (
-                <TableRow key={trader.id}>
-                  <TableCell>
-                    <Badge variant={index < 3 ? 'default' : 'secondary'}>
-                      #{index + 1}
-                    </Badge>
+              {filteredUsers.map((u) => (
+                <TableRow key={u.id}>
+                  <TableCell className="font-medium">{u.nickname}</TableCell>
+                  <TableCell>${u.balance.toLocaleString()}</TableCell>
+                  <TableCell>Level {u.level}</TableCell>
+                  <TableCell className="text-right space-x-2">
+                    <Button variant="outline" size="sm" onClick={() => {
+                      setSelectedUserId(u.id);
+                      setShowModifyBalanceDialog(true);
+                    }}>
+                      <DollarSign className="h-4 w-4 mr-1" />
+                      Balance
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => {
+                      setSelectedUserId(u.id);
+                      setShowModifyLevelDialog(true);
+                    }}>
+                      <Trophy className="h-4 w-4 mr-1" />
+                      Level
+                    </Button>
                   </TableCell>
-                  <TableCell className="font-medium">{trader.nickname}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline">Lvl {trader.level}</Badge>
-                  </TableCell>
-                  <TableCell className={trader.total_profit_loss >= 0 ? 'text-green-500' : 'text-red-500'}>
-                    ${trader.total_profit_loss.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                  </TableCell>
-                  <TableCell>{trader.total_trades}</TableCell>
-                  <TableCell>{trader.win_rate.toFixed(1)}%</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -492,140 +366,88 @@ export const AdminEconomy = () => {
         </CardContent>
       </Card>
 
-      {/* Modify Balance Dialog */}
       <Dialog open={showModifyBalanceDialog} onOpenChange={setShowModifyBalanceDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Modify User Balance</DialogTitle>
-            <DialogDescription>Add or remove virtual USDT from user account.</DialogDescription>
+            <DialogTitle>Modify Balance</DialogTitle>
+            <DialogDescription>
+              Adjust the USDT balance for the selected user.
+            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="flex gap-2">
+          <div className="grid gap-4 py-4">
+            <div className="flex items-center space-x-4">
               <Button 
                 variant={modifyType === 'add' ? 'default' : 'outline'}
                 onClick={() => setModifyType('add')}
               >
-                <Plus className="h-4 w-4 mr-1" />
-                Add
+                <Plus className="h-4 w-4 mr-2" /> Add
               </Button>
               <Button 
                 variant={modifyType === 'remove' ? 'default' : 'outline'}
                 onClick={() => setModifyType('remove')}
               >
-                <Minus className="h-4 w-4 mr-1" />
-                Remove
+                <Minus className="h-4 w-4 mr-2" /> Remove
               </Button>
             </div>
-            <div>
-              <Label>Amount (USDT)</Label>
-              <Input 
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="amount" className="text-right">
+                Amount
+              </Label>
+              <Input
+                id="amount"
                 type="number"
                 value={modifyAmount}
                 onChange={(e) => setModifyAmount(e.target.value)}
-                placeholder="10000"
+                className="col-span-3"
               />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowModifyBalanceDialog(false)}>Cancel</Button>
-            <Button onClick={handleModifyBalance}>Apply</Button>
+            <Button onClick={handleModifyBalance}>Save changes</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Modify Level Dialog */}
       <Dialog open={showModifyLevelDialog} onOpenChange={setShowModifyLevelDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Modify User Level</DialogTitle>
-            <DialogDescription>Increase or decrease user level.</DialogDescription>
+            <DialogTitle>Modify Level</DialogTitle>
+            <DialogDescription>
+              Adjust the player level for the selected user.
+            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="flex gap-2">
+          <div className="grid gap-4 py-4">
+            <div className="flex items-center space-x-4">
               <Button 
                 variant={modifyType === 'add' ? 'default' : 'outline'}
                 onClick={() => setModifyType('add')}
               >
-                <Plus className="h-4 w-4 mr-1" />
-                Increase
+                <Plus className="h-4 w-4 mr-2" /> Add
               </Button>
               <Button 
                 variant={modifyType === 'remove' ? 'default' : 'outline'}
                 onClick={() => setModifyType('remove')}
               >
-                <Minus className="h-4 w-4 mr-1" />
-                Decrease
+                <Minus className="h-4 w-4 mr-2" /> Remove
               </Button>
             </div>
-            <div>
-              <Label>Levels</Label>
-              <Input 
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="level_amount" className="text-right">
+                Levels
+              </Label>
+              <Input
+                id="level_amount"
                 type="number"
                 value={modifyAmount}
                 onChange={(e) => setModifyAmount(e.target.value)}
-                placeholder="1"
-                min="1"
+                className="col-span-3"
               />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowModifyLevelDialog(false)}>Cancel</Button>
-            <Button onClick={handleModifyLevel}>Apply</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Modify Dividend Dialog */}
-      <Dialog open={showDividendDialog} onOpenChange={setShowDividendDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Modify Dividend Yield</DialogTitle>
-            <DialogDescription>
-              Adjust annual dividend yield for {selectedStock?.symbol}. Dividends are paid daily at 10:00 UTC.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label>Annual Dividend Yield: {dividendYield.toFixed(1)}%</Label>
-              <Slider
-                value={[dividendYield]}
-                onValueChange={(value) => setDividendYield(value[0])}
-                min={0}
-                max={15}
-                step={0.1}
-                className="mt-2"
-              />
-              <p className="text-xs text-muted-foreground mt-2">
-                Daily payout: ~{(dividendYield / 365).toFixed(4)}% per day
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <Button 
-                size="sm" 
-                variant={dividendYield === 0 ? 'default' : 'outline'}
-                onClick={() => setDividendYield(0)}
-              >
-                0% (No Div)
-              </Button>
-              <Button 
-                size="sm" 
-                variant={dividendYield === 4.8 ? 'default' : 'outline'}
-                onClick={() => setDividendYield(4.8)}
-              >
-                4.8% (Default)
-              </Button>
-              <Button 
-                size="sm" 
-                variant={dividendYield === 8 ? 'default' : 'outline'}
-                onClick={() => setDividendYield(8)}
-              >
-                8% (High)
-              </Button>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDividendDialog(false)}>Cancel</Button>
-            <Button onClick={handleUpdateDividendYield}>Save</Button>
+            <Button onClick={handleModifyLevel}>Save changes</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

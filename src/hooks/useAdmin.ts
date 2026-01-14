@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 
 export const useAdmin = () => {
@@ -8,26 +7,20 @@ export const useAdmin = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const checkAdmin = async () => {
-      if (!user) {
-        setIsAdmin(false);
-        setLoading(false);
-        return;
-      }
-
-      try {
-        const { data, error } = await supabase.rpc("is_admin");
-        if (error) throw error;
-        setIsAdmin(data === true);
-      } catch (error) {
-        console.error("Error checking admin status:", error);
-        setIsAdmin(false);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    checkAdmin();
+    if (!user) {
+      setIsAdmin(false);
+      setLoading(false);
+      return;
+    }
+    const raw = import.meta.env.VITE_ADMIN_EMAILS ?? "";
+    const allowed = raw
+      .split(",")
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean);
+    const email = (user.email || "").toLowerCase();
+    const match = allowed.length > 0 && allowed.includes(email);
+    setIsAdmin(match);
+    setLoading(false);
   }, [user]);
 
   return { isAdmin, loading };

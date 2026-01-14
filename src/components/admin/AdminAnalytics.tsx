@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { 
@@ -33,130 +32,37 @@ export const AdminAnalytics = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchAnalytics();
+    const now = new Date();
+    const days: { date: string; count: number }[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+      days.push({ date: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), count: 0 });
+    }
+    const emptyDistribution = [
+      { name: 'Crypto', value: 0 },
+      { name: 'Stocks', value: 0 },
+      { name: 'Forex', value: 0 },
+    ];
+    setData({
+      dailySignups: days,
+      dailyTrades: days,
+      marketDistribution: emptyDistribution,
+      userRetention: [
+        { period: 'Day 1', rate: 0 },
+        { period: 'Day 7', rate: 0 },
+        { period: 'Day 30', rate: 0 },
+      ],
+      topErrors: [],
+      engagementMetrics: {
+        avgSessionDuration: 0,
+        avgTradesPerUser: 0,
+        activeUserRate: 0,
+      },
+    });
+    setLoading(false);
   }, []);
 
-  const fetchAnalytics = async () => {
-    setLoading(true);
-    try {
-      const now = new Date();
-      const last30Days = subDays(now, 30);
-      
-      // Daily signups
-      const { data: signupsData } = await supabase
-        .from('profiles')
-        .select('created_at')
-        .gte('created_at', last30Days.toISOString());
-
-      const signupsByDay: Record<string, number> = {};
-      eachDayOfInterval({ start: last30Days, end: now }).forEach(day => {
-        signupsByDay[format(day, 'MMM d')] = 0;
-      });
-      
-      signupsData?.forEach(profile => {
-        const day = format(new Date(profile.created_at), 'MMM d');
-        if (signupsByDay[day] !== undefined) {
-          signupsByDay[day]++;
-        }
-      });
-
-      const dailySignups = Object.entries(signupsByDay).map(([date, count]) => ({ date, count }));
-
-      // Daily trades
-      const { data: tradesData } = await supabase
-        .from('trades')
-        .select('created_at')
-        .gte('created_at', last30Days.toISOString());
-
-      const tradesByDay: Record<string, number> = {};
-      eachDayOfInterval({ start: last30Days, end: now }).forEach(day => {
-        tradesByDay[format(day, 'MMM d')] = 0;
-      });
-      
-      tradesData?.forEach(trade => {
-        const day = format(new Date(trade.created_at), 'MMM d');
-        if (tradesByDay[day] !== undefined) {
-          tradesByDay[day]++;
-        }
-      });
-
-      const dailyTrades = Object.entries(tradesByDay).map(([date, count]) => ({ date, count }));
-
-      // Market distribution
-      const { data: assetsTraded } = await supabase
-        .from('trades')
-        .select('assets!inner(category)');
-
-      const marketCounts: Record<string, number> = { crypto: 0, stocks: 0, forex: 0 };
-      assetsTraded?.forEach((t: any) => {
-        const cat = t.assets?.category || 'other';
-        if (marketCounts[cat] !== undefined) {
-          marketCounts[cat]++;
-        }
-      });
-
-      const marketDistribution = Object.entries(marketCounts).map(([name, value]) => ({ 
-        name: name.charAt(0).toUpperCase() + name.slice(1), 
-        value 
-      }));
-
-      // User retention (simplified)
-      const { count: totalUsers } = await supabase
-        .from('profiles')
-        .select('*', { count: 'exact', head: true });
-
-      const { count: activeToday } = await supabase
-        .from('profiles')
-        .select('*', { count: 'exact', head: true })
-        .gte('last_active_at', subDays(now, 1).toISOString());
-
-      const { count: activeWeek } = await supabase
-        .from('profiles')
-        .select('*', { count: 'exact', head: true })
-        .gte('last_active_at', subDays(now, 7).toISOString());
-
-      const { count: activeMonth } = await supabase
-        .from('profiles')
-        .select('*', { count: 'exact', head: true })
-        .gte('last_active_at', subDays(now, 30).toISOString());
-
-      const userRetention = [
-        { period: 'Day 1', rate: totalUsers ? Math.round((activeToday || 0) / totalUsers * 100) : 0 },
-        { period: 'Day 7', rate: totalUsers ? Math.round((activeWeek || 0) / totalUsers * 100) : 0 },
-        { period: 'Day 30', rate: totalUsers ? Math.round((activeMonth || 0) / totalUsers * 100) : 0 },
-      ];
-
-      // Engagement metrics
-      const { data: profileStats } = await supabase
-        .from('profiles')
-        .select('played_time_seconds, total_trades');
-
-      const avgSessionDuration = profileStats?.length 
-        ? profileStats.reduce((sum, p) => sum + (p.played_time_seconds || 0), 0) / profileStats.length / 60
-        : 0;
-
-      const avgTradesPerUser = profileStats?.length
-        ? profileStats.reduce((sum, p) => sum + (p.total_trades || 0), 0) / profileStats.length
-        : 0;
-
-      setData({
-        dailySignups,
-        dailyTrades,
-        marketDistribution,
-        userRetention,
-        topErrors: [], // Would need error tracking system
-        engagementMetrics: {
-          avgSessionDuration: Math.round(avgSessionDuration),
-          avgTradesPerUser: Math.round(avgTradesPerUser * 10) / 10,
-          activeUserRate: totalUsers ? Math.round((activeWeek || 0) / totalUsers * 100) : 0,
-        },
-      });
-    } catch (error) {
-      console.error('Error fetching analytics:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const fetchAnalytics = async () => {};
 
   if (loading) {
     return (

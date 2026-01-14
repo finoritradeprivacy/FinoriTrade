@@ -3,9 +3,17 @@ import { useCallback, useRef, useEffect, useState } from 'react';
 // Audio context singleton
 let audioContext: AudioContext | null = null;
 
+// Add type definition for webkitAudioContext
+declare global {
+  interface Window {
+    webkitAudioContext: typeof AudioContext;
+  }
+}
+
 const getAudioContext = () => {
   if (!audioContext) {
-    audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    audioContext = new AudioContextClass();
   }
   return audioContext;
 };

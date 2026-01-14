@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { supabase } from "@/integrations/supabase/client";
 import { TrendingUp, TrendingDown, Newspaper, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -22,17 +21,40 @@ const NewsFeed = () => {
   const [nextEventTime, setNextEventTime] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchNews = async () => {
-      const { data } = await supabase
-        .from("news_events")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(15);
-      
-      if (data) setNews(data as NewsEvent[]);
-    };
-
-    fetchNews();
+    // Mock initial news
+    const initialNews: NewsEvent[] = [
+      {
+        id: '1',
+        headline: 'Bitcoin Breaks Resistance Level',
+        content: 'Bitcoin has successfully broken through the key resistance level of $45,000.',
+        event_type: 'Crypto Market',
+        impact_type: 'bullish',
+        impact_strength: 8,
+        created_at: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
+        scheduled_for: null
+      },
+      {
+        id: '2',
+        headline: 'Fed Announces Interest Rate Decision',
+        content: 'The Federal Reserve has decided to keep interest rates unchanged.',
+        event_type: 'Economic Policy',
+        impact_type: 'neutral',
+        impact_strength: 5,
+        created_at: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
+        scheduled_for: null
+      },
+      {
+        id: '3',
+        headline: 'Tech Stocks Sell-off Continues',
+        content: 'Major tech stocks continue to slide as bond yields rise.',
+        event_type: 'Stock Market',
+        impact_type: 'bearish',
+        impact_strength: 7,
+        created_at: new Date(Date.now() - 1000 * 60 * 180).toISOString(),
+        scheduled_for: null
+      }
+    ];
+    setNews(initialNews);
 
     // Update countdown every second
     const interval = setInterval(() => {
@@ -40,40 +62,31 @@ const NewsFeed = () => {
       updateNextEventCountdown();
     }, 1000);
 
-    const newsRefreshInterval = setInterval(() => {
-      fetchNews();
-    }, 15000);
-
-    const channel = supabase
-      .channel('news-updates')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'news_events' },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            // Play notification sound for new news
-            const audio = new Audio('/notification.mp3');
-            audio.play().catch(() => {}); // Ignore errors if sound fails
-            
-            setNews(prev => [payload.new as NewsEvent, ...prev].slice(0, 15));
-          } else if (payload.eventType === 'UPDATE') {
-            setNews(prev => 
-              prev.map(item => item.id === payload.new.id ? payload.new as NewsEvent : item)
-            );
-          } else if (payload.eventType === 'DELETE') {
-            setNews(prev => prev.filter(item => item.id !== payload.old.id));
-          }
-        }
-      )
-      .subscribe();
+    // Simulate incoming news
+    const newsInterval = setInterval(() => {
+        const newEvent: NewsEvent = {
+            id: Date.now().toString(),
+            headline: 'Market Update: Volatility Increases',
+            content: 'Market volatility has increased significantly in the last hour.',
+            event_type: 'Market Alert',
+            impact_type: Math.random() > 0.5 ? 'bearish' : 'bullish',
+            impact_strength: 6,
+            created_at: new Date().toISOString(),
+            scheduled_for: null
+        };
+        setNews(prev => [newEvent, ...prev].slice(0, 15));
+        
+        // Play notification sound
+        const audio = new Audio('/notification.mp3');
+        audio.play().catch(() => {});
+    }, 60000 * 5); // Every 5 minutes
 
     // Initial countdown calculation
     updateNextEventCountdown();
 
     return () => {
       clearInterval(interval);
-      clearInterval(newsRefreshInterval);
-      supabase.removeChannel(channel);
+      clearInterval(newsInterval);
     };
   }, []);
 

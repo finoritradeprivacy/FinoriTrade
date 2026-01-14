@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase } from "@/integrations/supabase/client";
+import { useSimTrade } from "@/contexts/SimTradeContext";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -31,7 +31,8 @@ interface ProfileData {
 }
 
 const Profile = () => {
-  const { user, signOut } = useAuth();
+  const { user, signOut, resendVerificationEmail } = useAuth();
+  const { usdtBalance, holdings, trades, prices, resetAll } = useSimTrade();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [profileData, setProfileData] = useState<ProfileData | null>(null);
@@ -47,6 +48,47 @@ const Profile = () => {
   const [emailVerified, setEmailVerified] = useState(true);
   const [resendingEmail, setResendingEmail] = useState(false);
 
+  const fetchProfileData = useCallback(async () => {
+    if (!user) return;
+    const metadata = (user.user_metadata || {}) as { nickname?: string; [key: string]: unknown };
+    const nickname =
+      metadata.nickname ||
+      (user.email ? String(user.email).split("@")[0] : "Trader");
+    const email = user.email || "";
+    const baseBalance = 100000;
+    const equity =
+      usdtBalance +
+      Object.entries(holdings).reduce((sum, [symbol, h]) => {
+        const px = prices[symbol] ?? h.averageBuyPrice ?? 0;
+        return sum + h.quantity * px;
+      }, 0);
+    const totalTrades = trades.length;
+    const totalProfitLoss = equity - baseBalance;
+    const level = 1 + Math.floor(totalTrades / 10);
+    const totalXp = totalTrades * 100;
+    const firstTradeTime =
+      trades.length > 0
+        ? Math.min(...trades.map((t) => t.createdAt))
+        : Date.now();
+    const playedSeconds = Math.max(
+      0,
+      Math.floor((Date.now() - firstTradeTime) / 1000)
+    );
+    setProfileData({
+      nickname,
+      email,
+      avatar_url: avatarUrl || undefined,
+      level,
+      total_xp: totalXp,
+      played_time_seconds: playedSeconds,
+      total_trades: totalTrades,
+      win_rate: 0,
+      total_profit_loss: totalProfitLoss,
+      usdt_balance: usdtBalance
+    });
+    setLoading(false);
+  }, [user, usdtBalance, holdings, trades, prices, avatarUrl]);
+
   useEffect(() => {
     if (!user) {
       navigate("/auth");
@@ -54,68 +96,13 @@ const Profile = () => {
     }
     fetchProfileData();
     setEmailVerified(user.email_confirmed_at !== null);
-  }, [user, navigate]);
-
-  const fetchProfileData = async () => {
-    if (!user) return;
-    try {
-      const [profileRes, statsRes, balanceRes] = await Promise.all([
-        supabase.from("profiles").select("*").eq("id", user.id).single(),
-        supabase.from("player_stats").select("*").eq("user_id", user.id).maybeSingle(),
-        supabase.from("user_balances").select("*").eq("user_id", user.id).single()
-      ]);
-      if (profileRes.data) {
-        setProfileData({
-          nickname: profileRes.data.nickname,
-          email: profileRes.data.email,
-          avatar_url: profileRes.data.avatar_url,
-          level: statsRes.data?.level || 1,
-          total_xp: statsRes.data?.total_xp || 0,
-          played_time_seconds: profileRes.data.played_time_seconds || 0,
-          total_trades: profileRes.data.total_trades || 0,
-          win_rate: profileRes.data.win_rate || 0,
-          total_profit_loss: profileRes.data.total_profit_loss || 0,
-          usdt_balance: balanceRes.data?.usdt_balance || 0
-        });
-      }
-    } catch (error) {
-      console.error("Error fetching profile data:", error);
-      toast({
-        title: "Error",
-        description: "Failed to load profile data",
-        variant: "destructive"
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [user, navigate, fetchProfileData]);
 
 
   const handleResetPortfolio = async () => {
     if (!user) return;
     try {
-      // First delete trades (they reference orders)
-      await supabase.from("trades").delete().eq("user_id", user.id);
-      
-      // Then delete orders
-      await supabase.from("orders").delete().eq("user_id", user.id);
-      
-      // Then delete portfolios
-      await supabase.from("portfolios").delete().eq("user_id", user.id);
-
-      // Reset balance to initial amount
-      await supabase.from("user_balances").update({
-        usdt_balance: 100000,
-        locked_balance: 0
-      }).eq("user_id", user.id);
-
-      // Reset profile stats
-      await supabase.from("profiles").update({
-        total_trades: 0,
-        win_rate: 0,
-        total_profit_loss: 0
-      }).eq("id", user.id);
-
+      resetAll();
       toast({
         title: "Portfolio Reset",
         description: "Your portfolio has been successfully reset to default"
@@ -135,19 +122,11 @@ const Profile = () => {
   const handleDeleteAccount = async () => {
     if (!user) return;
     try {
-      // Delete all user data
-      await Promise.all([
-        supabase.from("orders").delete().eq("user_id", user.id),
-        supabase.from("trades").delete().eq("user_id", user.id),
-        supabase.from("portfolios").delete().eq("user_id", user.id),
-        supabase.from("player_stats").delete().eq("user_id", user.id),
-        supabase.from("user_balances").delete().eq("user_id", user.id),
-        supabase.from("profiles").delete().eq("id", user.id)
-      ]);
       toast({
-        title: "Account Deleted",
-        description: "Your account has been successfully deleted"
+        title: "Account Signed Out",
+        description: "You have been signed out and local data reset"
       });
+      resetAll();
       await signOut();
       navigate("/auth");
     } catch (error) {
@@ -163,9 +142,9 @@ const Profile = () => {
   const handleUpdateAvatar = async () => {
     if (!user || !avatarUrl.trim()) return;
     try {
-      await supabase.from("profiles").update({
-        avatar_url: avatarUrl
-      }).eq("id", user.id);
+      setProfileData((prev) =>
+        prev ? { ...prev, avatar_url: avatarUrl } : prev
+      );
       toast({
         title: "Avatar Updated",
         description: "Your profile picture has been changed"
@@ -195,25 +174,15 @@ const Profile = () => {
     }
 
     try {
-      // Update nickname in profiles
-      await supabase.from("profiles").update({
-        nickname: editNickname,
-        email: editEmail
-      }).eq("id", user.id);
-
-      // Update email in auth if changed
-      if (editEmail !== profileData?.email) {
-        const { error } = await supabase.auth.updateUser({
-          email: editEmail
-        });
-        if (error) {
-          toast({
-            title: "Email Update",
-            description: "A confirmation email has been sent to your new email address",
-          });
-        }
-      }
-
+      setProfileData((prev) =>
+        prev
+          ? {
+              ...prev,
+              nickname: editNickname,
+              email: editEmail
+            }
+          : prev
+      );
       toast({
         title: "Profile Updated",
         description: "Your profile has been updated successfully"
@@ -256,20 +225,14 @@ const Profile = () => {
   };
 
   const handleResendVerificationEmail = async () => {
-    if (!user?.email) return;
     setResendingEmail(true);
     try {
-      const { error } = await supabase.auth.resend({
-        type: 'signup',
-        email: user.email,
-        options: {
-          emailRedirectTo: `${window.location.origin}/`
-        }
-      });
+      const { error } = await resendVerificationEmail();
       if (error) throw error;
       sonnerToast.success("Verification email sent! Please check your inbox.");
-    } catch (error: any) {
-      sonnerToast.error(error.message || "Failed to resend verification email");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to resend verification email";
+      sonnerToast.error(message);
     } finally {
       setResendingEmail(false);
     }

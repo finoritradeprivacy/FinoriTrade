@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { useSimTrade } from '@/contexts/SimTradeContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -53,6 +53,7 @@ interface Trade {
 }
 
 export const AdminTrading = () => {
+  const { holdings, trades, prices } = useSimTrade();
   const [assets, setAssets] = useState<Asset[]>([]);
   const [openPositions, setOpenPositions] = useState<OpenPosition[]>([]);
   const [recentTrades, setRecentTrades] = useState<Trade[]>([]);
@@ -65,124 +66,69 @@ export const AdminTrading = () => {
   const [newAsset, setNewAsset] = useState({ symbol: '', name: '', category: 'crypto', current_price: '' });
   const [priceFeedPaused, setPriceFeedPaused] = useState(false);
 
+  const fetchData = () => {
+    // Since we are using context, we can just force a re-render or toast
+    toast.success('Data refreshed from simulation context');
+  };
+
   useEffect(() => {
-    fetchData();
-    fetchTradingSettings();
-  }, []);
-
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      // Fetch assets
-      const { data: assetsData } = await supabase
-        .from('assets')
-        .select('*')
-        .order('category', { ascending: true });
-      setAssets(assetsData || []);
-
-      // Fetch open positions with user and asset info
-      const { data: positionsData } = await supabase
-        .from('portfolios')
-        .select('*, profiles!inner(nickname), assets!inner(symbol, current_price)')
-        .gt('quantity', 0);
-
-      const positions: OpenPosition[] = positionsData?.map((p: any) => ({
-        id: p.id,
-        user_nickname: p.profiles?.nickname || 'Unknown',
-        user_id: p.user_id,
-        asset_symbol: p.assets?.symbol || 'Unknown',
-        asset_id: p.asset_id,
-        quantity: Number(p.quantity),
-        average_buy_price: Number(p.average_buy_price),
-        current_value: Number(p.quantity) * Number(p.assets?.current_price || 0),
-        unrealized_pnl: (Number(p.assets?.current_price || 0) - Number(p.average_buy_price)) * Number(p.quantity),
-      })) || [];
-      setOpenPositions(positions);
-
-      // Fetch recent trades
-      const { data: tradesData } = await supabase
-        .from('trades')
-        .select('*, profiles!inner(nickname), assets!inner(symbol)')
-        .order('created_at', { ascending: false })
-        .limit(50);
-
-      const trades: Trade[] = tradesData?.map((t: any) => ({
-        id: t.id,
-        user_nickname: t.profiles?.nickname || 'Unknown',
-        asset_symbol: t.assets?.symbol || 'Unknown',
-        side: t.side,
-        quantity: Number(t.quantity),
-        price: Number(t.price),
-        total_value: Number(t.total_value),
-        created_at: t.created_at,
-      })) || [];
-      setRecentTrades(trades);
-    } catch (error) {
-      console.error('Error fetching trading data:', error);
-      toast.error('Failed to fetch trading data');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchTradingSettings = async () => {
-    const { data } = await supabase
-      .from('trading_settings')
-      .select('*')
-      .eq('setting_key', 'markets_enabled')
-      .single();
-
-    if (data) {
-      const value = typeof data.setting_value === 'string' 
-        ? JSON.parse(data.setting_value) 
-        : data.setting_value;
-      setMarketsEnabled(value);
-    }
-  };
+    const baseAssets: Asset[] = [
+      { id: 'BTC', symbol: 'BTC', name: 'Bitcoin', category: 'crypto', current_price: prices.BTC || 0, price_change_24h: null, is_active: true },
+      { id: 'ETH', symbol: 'ETH', name: 'Ethereum', category: 'crypto', current_price: prices.ETH || 0, price_change_24h: null, is_active: true },
+      { id: 'SOL', symbol: 'SOL', name: 'Solana', category: 'crypto', current_price: prices.SOL || 0, price_change_24h: null, is_active: true },
+      { id: 'BNB', symbol: 'BNB', name: 'BNB', category: 'crypto', current_price: prices.BNB || 0, price_change_24h: null, is_active: true },
+      { id: 'XRP', symbol: 'XRP', name: 'XRP', category: 'crypto', current_price: prices.XRP || 0, price_change_24h: null, is_active: true },
+      { id: 'DOGE', symbol: 'DOGE', name: 'Dogecoin', category: 'crypto', current_price: prices.DOGE || 0, price_change_24h: null, is_active: true },
+      { id: 'ADA', symbol: 'ADA', name: 'Cardano', category: 'crypto', current_price: prices.ADA || 0, price_change_24h: null, is_active: true },
+    ];
+    setAssets(baseAssets);
+    const positions: OpenPosition[] = Object.entries(holdings).map(([symbol, h]) => {
+      const price = prices[symbol] || 0;
+      return {
+        id: symbol,
+        user_nickname: 'You',
+        user_id: 'local',
+        asset_symbol: symbol,
+        asset_id: symbol,
+        quantity: h.quantity,
+        average_buy_price: h.averageBuyPrice,
+        current_value: h.quantity * price,
+        unrealized_pnl: (price - h.averageBuyPrice) * h.quantity,
+      };
+    });
+    setOpenPositions(positions);
+    const mappedTrades: Trade[] = trades.slice(0, 50).map(t => ({
+      id: t.id,
+      user_nickname: 'You',
+      asset_symbol: t.symbol,
+      side: t.side,
+      quantity: t.quantity,
+      price: t.price,
+      total_value: t.totalValue,
+      created_at: new Date(t.createdAt).toISOString(),
+    }));
+    setRecentTrades(mappedTrades);
+    setLoading(false);
+  }, [holdings, trades, prices]);
 
   const handleToggleMarket = async (market: 'crypto' | 'stocks' | 'forex') => {
     const newSettings = { ...marketsEnabled, [market]: !marketsEnabled[market] };
     
     try {
-      await supabase
-        .from('trading_settings')
-        .update({ setting_value: newSettings })
-        .eq('setting_key', 'markets_enabled');
-
       setMarketsEnabled(newSettings);
-      
-      await supabase.rpc('log_admin_action', {
-        p_action_type: 'toggle_market',
-        p_entity_type: 'trading',
-        p_entity_id: market,
-        p_details: { enabled: newSettings[market] }
-      });
-
       toast.success(`${market} market ${newSettings[market] ? 'enabled' : 'disabled'}`);
     } catch (error) {
-      console.error('Error toggling market:', error);
       toast.error('Failed to toggle market');
     }
   };
 
   const handleToggleAsset = async (asset: Asset) => {
     try {
-      await supabase
-        .from('assets')
-        .update({ is_active: !asset.is_active })
-        .eq('id', asset.id);
-
-      await supabase.rpc('log_admin_action', {
-        p_action_type: 'toggle_asset',
-        p_entity_type: 'asset',
-        p_entity_id: asset.id,
-        p_details: { symbol: asset.symbol, is_active: !asset.is_active }
-      });
-
+      setAssets(prev =>
+        prev.map(a => (a.id === asset.id ? { ...a, is_active: !a.is_active } : a)),
+      );
       toast.success(`${asset.symbol} ${!asset.is_active ? 'activated' : 'deactivated'}`);
-      fetchData();
     } catch (error) {
-      console.error('Error toggling asset:', error);
       toast.error('Failed to toggle asset');
     }
   };
@@ -192,63 +138,25 @@ export const AdminTrading = () => {
 
     try {
       const price = parseFloat(newPrice);
-      await supabase
-        .from('assets')
-        .update({ current_price: price })
-        .eq('id', selectedAsset.id);
-
-      await supabase.rpc('log_admin_action', {
-        p_action_type: 'price_override',
-        p_entity_type: 'asset',
-        p_entity_id: selectedAsset.id,
-        p_details: { symbol: selectedAsset.symbol, old_price: selectedAsset.current_price, new_price: price }
-      });
-
+      if (!Number.isFinite(price) || price <= 0) {
+        toast.error('Invalid price');
+        return;
+      }
+      setAssets(prev =>
+        prev.map(a => (a.id === selectedAsset.id ? { ...a, current_price: price } : a)),
+      );
       toast.success(`Price updated for ${selectedAsset.symbol}`);
       setShowPriceOverrideDialog(false);
       setNewPrice('');
-      fetchData();
     } catch (error) {
-      console.error('Error overriding price:', error);
       toast.error('Failed to override price');
     }
   };
 
   const handleForceClosePosition = async (position: OpenPosition) => {
     try {
-      // Get current price
-      const { data: asset } = await supabase
-        .from('assets')
-        .select('current_price')
-        .eq('id', position.asset_id)
-        .single();
-
-      if (!asset) throw new Error('Asset not found');
-
-      // Execute sell order via RPC
-      await supabase.rpc('process_market_order', {
-        p_user_id: position.user_id,
-        p_asset_id: position.asset_id,
-        p_side: 'sell',
-        p_quantity: position.quantity,
-        p_price: asset.current_price,
-      });
-
-      await supabase.rpc('log_admin_action', {
-        p_action_type: 'force_close_position',
-        p_entity_type: 'portfolio',
-        p_entity_id: position.id,
-        p_details: { 
-          user: position.user_nickname, 
-          asset: position.asset_symbol, 
-          quantity: position.quantity 
-        }
-      });
-
-      toast.success(`Position force-closed for ${position.user_nickname}`);
-      fetchData();
+      toast.info('Force close is not available in local simulation.');
     } catch (error) {
-      console.error('Error force closing position:', error);
       toast.error('Failed to force close position');
     }
   };
@@ -257,26 +165,28 @@ export const AdminTrading = () => {
     if (!newAsset.symbol || !newAsset.name || !newAsset.current_price) return;
 
     try {
-      await supabase.from('assets').insert({
-        symbol: newAsset.symbol.toUpperCase(),
-        name: newAsset.name,
-        category: newAsset.category,
-        asset_type: newAsset.category,
-        current_price: parseFloat(newAsset.current_price),
-      });
-
-      await supabase.rpc('log_admin_action', {
-        p_action_type: 'add_asset',
-        p_entity_type: 'asset',
-        p_details: newAsset
-      });
-
+      const price = parseFloat(newAsset.current_price);
+      if (!Number.isFinite(price) || price <= 0) {
+        toast.error('Invalid price');
+        return;
+      }
+      const id = newAsset.symbol.toUpperCase();
+      setAssets(prev => [
+        ...prev,
+        {
+          id,
+          symbol: id,
+          name: newAsset.name,
+          category: newAsset.category,
+          current_price: price,
+          price_change_24h: null,
+          is_active: true,
+        },
+      ]);
       toast.success(`Asset ${newAsset.symbol} added`);
       setShowAddAssetDialog(false);
       setNewAsset({ symbol: '', name: '', category: 'crypto', current_price: '' });
-      fetchData();
     } catch (error) {
-      console.error('Error adding asset:', error);
       toast.error('Failed to add asset');
     }
   };
