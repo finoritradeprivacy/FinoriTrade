@@ -83,6 +83,7 @@ const SimTradeContext = createContext<SimTradeContextValue | null>(null);
 const DEFAULT_BALANCE = 100000;
 const TRACKED_CRYPTO = new Set(ASSETS.filter(a => a.category === "crypto").map(a => a.symbol));
 const TRACKED_STOCKS = ASSETS.filter(a => a.category === "stocks").map(a => a.symbol);
+const TRACKED_FOREX = ASSETS.filter(a => a.category === "forex").map(a => a.symbol);
 
 function loadState(): SimTradeState {
   const raw = localStorage.getItem("simtrade_state");
