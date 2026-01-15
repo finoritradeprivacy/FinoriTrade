@@ -245,7 +245,11 @@ export const TradingChart = ({
     let currentClose = asset.current_price;
     let currentTime = bucketTime;
 
-    const volatility = currentClose * 0.002; // 0.2% base volatility
+    // Adjust volatility based on timeframe (scaling with square root of time)
+    // Base volatility: 0.1% per minute
+    const baseVolatility = 0.001; 
+    const timeScaler = Math.sqrt(timeframeSeconds / 60);
+    const volatility = currentClose * baseVolatility * timeScaler;
 
     for (let i = 0; i < maxCandles; i++) {
       const move = (Math.random() - 0.5) * volatility;
@@ -254,7 +258,6 @@ export const TradingChart = ({
       const high = Math.max(open, close) + Math.random() * volatility * 0.5;
       const low = Math.min(open, close) - Math.random() * volatility * 0.5;
 
-      // We push to array, but since we go backwards in time, we'll reverse it later
       chartData.push({
         time: currentTime as UTCTimestamp,
         open,
@@ -263,12 +266,10 @@ export const TradingChart = ({
         close
       });
 
-      // Prepare for previous candle (previous candle's close ~ this candle's open)
       currentClose = open;
       currentTime -= timeframeSeconds;
     }
 
-    // Reverse to get chronological order
     chartData.reverse();
 
     candlestickSeriesRef.current.setData(chartData);
@@ -571,9 +572,9 @@ export const TradingChart = ({
 
   useEffect(() => {
     if (isInitialized && asset) {
-      generateHistoricalData();
+      generateHistoricalData(asset, timeframe);
     }
-  }, [generateHistoricalData, isInitialized, asset]);
+  }, [generateHistoricalData, isInitialized, asset?.id, timeframe]);
 
   // Remove specific drawing
   const removeDrawing = (id: string) => {

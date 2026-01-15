@@ -1,5 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { TrendingUp, TrendingDown } from "lucide-react";
+import { useSimTrade } from "@/contexts/SimTradeContext";
+import { ASSETS } from "@/data/assets";
 
 interface Asset {
   symbol: string;
@@ -11,16 +13,15 @@ interface Asset {
 const SCROLL_SPEED = 60; // Pixels per second
 
 const MarketTicker = () => {
-  const [assets, setAssets] = useState<Asset[]>([
-    { symbol: 'BTC', name: 'Bitcoin', current_price: 0, price_change_24h: null },
-    { symbol: 'ETH', name: 'Ethereum', current_price: 0, price_change_24h: null },
-    { symbol: 'SOL', name: 'Solana', current_price: 0, price_change_24h: null },
-    { symbol: 'BNB', name: 'BNB', current_price: 0, price_change_24h: null },
-    { symbol: 'XRP', name: 'XRP', current_price: 0, price_change_24h: null },
-    { symbol: 'DOGE', name: 'Dogecoin', current_price: 0, price_change_24h: null },
-    { symbol: 'ADA', name: 'Cardano', current_price: 0, price_change_24h: null },
-  ]);
-  const [wsPrices, setWsPrices] = useState<Record<string, number>>({});
+  const { prices } = useSimTrade();
+  const [assets, setAssets] = useState<Asset[]>(
+    ASSETS.map(a => ({
+      symbol: a.symbol,
+      name: a.name,
+      current_price: 0,
+      price_change_24h: null
+    }))
+  );
   const [scrollPosition, setScrollPosition] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -28,32 +29,26 @@ const MarketTicker = () => {
   const lastTimeRef = useRef<number>(0);
   const baselineRef = useRef<Record<string, number>>({});
 
-  // Initialize and subscribe to updates
+  // Update prices from context
   useEffect(() => {
-    const cryptoSymbols = ['BTC','ETH','SOL','BNB','XRP','DOGE','ADA'];
-    const binanceStreams = cryptoSymbols.map(s => `${s.toLowerCase()}usdt@miniTicker`).join('/');
-    const ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${binanceStreams}`);
-    ws.onmessage = (ev) => {
-      const data = JSON.parse(ev.data);
-      const p = data?.data;
-      if (!p || !p.s || !p.c) return;
-      const sym = String(p.s).toUpperCase().replace('USDT','');
-      const price = Number(p.c);
-      setWsPrices(prev => ({ ...prev, [sym]: price }));
-      if (price > 0 && baselineRef.current[sym] == null) {
-        baselineRef.current[sym] = price;
+    setAssets(prev => prev.map(a => {
+      const newPrice = prices[a.symbol];
+      if (!newPrice) return a;
+      
+      if (baselineRef.current[a.symbol] == null) {
+        baselineRef.current[a.symbol] = newPrice;
       }
-      const baseline = baselineRef.current[sym] ?? price;
-      const change = baseline > 0 ? (price - baseline) / baseline : 0;
-      setAssets(prev => prev.map(a => a.symbol === sym ? { ...a, current_price: price, price_change_24h: change } : a));
-    };
-
-    return () => {
-      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-        ws.close();
-      }
-    };
-  }, []);
+      
+      const baseline = baselineRef.current[a.symbol] ?? newPrice;
+      const change = baseline > 0 ? (newPrice - baseline) / baseline : 0;
+      
+      return {
+        ...a,
+        current_price: newPrice,
+        price_change_24h: change
+      };
+    }));
+  }, [prices]);
 
   // Simple CSS-based animation with scroll position tracking
   useEffect(() => {
@@ -127,7 +122,7 @@ const MarketTicker = () => {
       >
         {tickerItems.map((asset, index) => {
           const isPositive = (asset.price_change_24h || 0) >= 0;
-          const price = wsPrices[asset.symbol] ?? asset.current_price;
+          const price = asset.current_price;
           return (
             <div
               key={`${asset.symbol}-${index}`}
