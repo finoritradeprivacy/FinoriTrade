@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, ChangeEvent } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSimTrade } from "@/contexts/SimTradeContext";
 import { Card } from "@/components/ui/card";
@@ -24,6 +24,18 @@ const PlayerProfile = () => {
   const { usdtBalance, trades, holdings, prices, timeOnSite } = useSimTrade();
   const [playerData, setPlayerData] = useState<PlayerData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const stored = window.localStorage.getItem("finori_avatar_url");
+      if (stored) {
+        setAvatarUrl(stored);
+      }
+    } catch {
+    }
+  }, []);
 
   useEffect(() => {
     const fetchPlayerData = async () => {
@@ -65,6 +77,25 @@ const PlayerProfile = () => {
 
     fetchPlayerData();
   }, [user, usdtBalance, trades, holdings, prices]);
+
+  const handleAvatarUpload = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result === "string") {
+        setAvatarUrl(result);
+        try {
+          if (typeof window !== "undefined") {
+            window.localStorage.setItem("finori_avatar_url", result);
+          }
+        } catch {
+        }
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   if (loading || !playerData) {
     return (
