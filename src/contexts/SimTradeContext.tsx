@@ -214,6 +214,17 @@ export function SimTradeProvider({ children }: { children: React.ReactNode }) {
           hasUpdates = true;
         });
 
+        TRACKED_FOREX.forEach(sym => {
+          const isJPY = sym.includes("JPY") || sym.includes("HUF"); // HUF is also high value, but let's stick to JPY logic for now
+          const base = isJPY ? 145 : 1.08;
+          // Initialize if missing or update
+          const current = nextPrices[sym] || (base + (Math.random() - 0.5) * (base * 0.05));
+          const changePercent = (Math.random() - 0.5) * 0.0005; // 0.05% max move (lower volatility for forex)
+          const next = current * (1 + changePercent);
+          nextPrices[sym] = next;
+          hasUpdates = true;
+        });
+
         if (hasUpdates) {
              return { ...prev, prices: nextPrices };
         }

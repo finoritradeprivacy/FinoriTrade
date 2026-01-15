@@ -120,6 +120,8 @@ export const TradingChart = ({
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [priceCountdown, setPriceCountdown] = useState(1);
   const { trades: ctxTrades } = useSimTrade();
+  const lastGenerationPriceRef = useRef<number | null>(null);
+  const currentAssetIdRef = useRef<string | null>(null);
 
   // Price update countdown - 1 second updates
   useEffect(() => {
@@ -227,27 +229,27 @@ export const TradingChart = ({
   }, []);
 
   // Generate historical candlestick data
-  const generateHistoricalData = useCallback(async () => {
-    if (!candlestickSeriesRef.current || !asset) return;
-    if (!asset.current_price || asset.current_price <= 0) {
+  const generateHistoricalData = useCallback(async (targetAsset: Asset, targetTimeframe: Timeframe) => {
+    if (!candlestickSeriesRef.current || !targetAsset) return;
+    if (!targetAsset.current_price || targetAsset.current_price <= 0) {
       setIsLoadingData(true);
       return;
     }
     setIsLoadingData(true);
-    const timeframeSeconds = getTimeframeSeconds(timeframe);
+    const timeframeSeconds = getTimeframeSeconds(targetTimeframe);
     const now = Math.floor(Date.now() / 1000);
     const bucketTime = Math.floor(now / timeframeSeconds) * timeframeSeconds;
-    const [minCandles, maxCandles] = getCandleLimits(timeframe);
+    const [minCandles, maxCandles] = getCandleLimits(targetTimeframe);
     
     // Mock data generation BACKWARDS from current price
     // This ensures the chart connects perfectly to the current real-time price
     const chartData: CandlestickData[] = [];
-    let currentClose = asset.current_price;
+    let currentClose = targetAsset.current_price;
     let currentTime = bucketTime;
 
     // Adjust volatility based on timeframe (scaling with square root of time)
-    // Base volatility: 0.1% per minute
-    const baseVolatility = 0.001; 
+    // Base volatility: 0.2% per minute (increased from 0.1% to prevent flat candles)
+    const baseVolatility = 0.002; 
     const timeScaler = Math.sqrt(timeframeSeconds / 60);
     const volatility = currentClose * baseVolatility * timeScaler;
 
@@ -274,8 +276,14 @@ export const TradingChart = ({
 
     candlestickSeriesRef.current.setData(chartData);
     setLastCandle(chartData[chartData.length - 1] || null);
+    
+    // Fit content to ensure candles are visible
+    if (chartRef.current) {
+      chartRef.current.timeScale().fitContent();
+    }
+    
     setIsLoadingData(false);
-  }, [asset, timeframe]);
+  }, []); // Dependencies removed to prevent regeneration on asset object change
 
   // Handle timeframe change with cooldown
   const handleTimeframeChange = (newTimeframe: Timeframe) => {
@@ -292,10 +300,24 @@ export const TradingChart = ({
     if (!asset || !candlestickSeriesRef.current) return;
     if (!asset.current_price || asset.current_price <= 0) return;
 
+    // Skip if data is currently loading/generating
+    if (isLoadingData) return;
+
     const now = Math.floor(Date.now() / 1000);
     const timeframeSeconds = getTimeframeSeconds(timeframe);
     const bucketTime = Math.floor(now / timeframeSeconds) * timeframeSeconds as UTCTimestamp;
     const currentPrice = asset.current_price;
+
+    // Check for massive price jumps (e.g. switching from static to live price)
+    // Only check if we have a last candle and it matches the current timeframe
+    if (lastCandle) {
+      const priceDiffPercent = Math.abs((currentPrice - lastCandle.close) / lastCandle.close);
+      // Increased threshold to 10% to prevent accidental regeneration on volatile assets
+      if (priceDiffPercent > 0.1) {
+        generateHistoricalData(asset, timeframe);
+        return;
+      }
+    }
 
     setLastCandle(prev => {
       let next: CandlestickData;
@@ -574,7 +596,7 @@ export const TradingChart = ({
     if (isInitialized && asset) {
       generateHistoricalData(asset, timeframe);
     }
-  }, [generateHistoricalData, isInitialized, asset?.id, timeframe]);
+  }, [isInitialized, asset?.id, timeframe]); // Only regenerate when ID or timeframe changes
 
   // Remove specific drawing
   const removeDrawing = (id: string) => {

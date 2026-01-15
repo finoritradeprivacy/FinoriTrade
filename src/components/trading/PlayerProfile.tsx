@@ -106,11 +106,26 @@ const PlayerProfile = () => {
   return (
     <Card className="p-4 space-y-4">
       <div className="flex items-start gap-3">
-        <Avatar className="h-12 w-12">
-          <AvatarFallback className="bg-primary text-primary-foreground font-bold">
-            {playerData.nickname.substring(0, 2).toUpperCase()}
-          </AvatarFallback>
-        </Avatar>
+        <div className="relative group cursor-pointer">
+          <Avatar className="h-12 w-12">
+            {avatarUrl ? (
+              <img src={avatarUrl} alt="Avatar" className="h-full w-full object-cover" />
+            ) : (
+              <AvatarFallback className="bg-primary text-primary-foreground font-bold">
+                {playerData.nickname.substring(0, 2).toUpperCase()}
+              </AvatarFallback>
+            )}
+          </Avatar>
+          <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+             <span className="text-[10px] text-white font-medium">Edit</span>
+          </div>
+          <input
+            type="file"
+            accept="image/*"
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            onChange={handleAvatarUpload}
+          />
+        </div>
         
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
