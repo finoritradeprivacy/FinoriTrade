@@ -26,6 +26,8 @@ interface AssetLite {
   dividend_yield?: number;
 }
 
+import { ASSETS } from "@/data/assets";
+
 const STATIC_BASE_PRICES: Record<string, number> = {
   BTC: 45000,
   ETH: 2500,
@@ -72,27 +74,7 @@ const Trade = () => {
       }
     });
 
-    const base: Omit<AssetLite, "current_price" | "price_change_24h">[] = [
-      { id: "BTC", symbol: "BTC", name: "Bitcoin", category: "crypto" },
-      { id: "ETH", symbol: "ETH", name: "Ethereum", category: "crypto" },
-      { id: "SOL", symbol: "SOL", name: "Solana", category: "crypto" },
-      { id: "BNB", symbol: "BNB", name: "BNB", category: "crypto" },
-      { id: "XRP", symbol: "XRP", name: "XRP", category: "crypto" },
-      { id: "DOGE", symbol: "DOGE", name: "Dogecoin", category: "crypto" },
-      { id: "ADA", symbol: "ADA", name: "Cardano", category: "crypto" },
-      { id: "AAPL", symbol: "AAPL", name: "Apple Inc.", category: "stocks", dividend_yield: 0.005 },
-      { id: "MSFT", symbol: "MSFT", name: "Microsoft Corp.", category: "stocks", dividend_yield: 0.008 },
-      { id: "GOOGL", symbol: "GOOGL", name: "Alphabet Inc.", category: "stocks" },
-      { id: "TSLA", symbol: "TSLA", name: "Tesla Inc.", category: "stocks" },
-      { id: "AMZN", symbol: "AMZN", name: "Amazon.com Inc.", category: "stocks" },
-      { id: "EUR/USD", symbol: "EUR/USD", name: "EUR / USD", category: "forex" },
-      { id: "GBP/USD", symbol: "GBP/USD", name: "GBP / USD", category: "forex" },
-      { id: "USD/JPY", symbol: "USD/JPY", name: "USD / JPY", category: "forex" },
-      { id: "AUD/USD", symbol: "AUD/USD", name: "AUD / USD", category: "forex" },
-      { id: "USD/CAD", symbol: "USD/CAD", name: "USD / CAD", category: "forex" },
-    ];
-
-    const withPrices: AssetLite[] = base.map(a => {
+    const withPrices: AssetLite[] = ASSETS.map(a => {
       const fromContext = prices[a.symbol];
       const fallback = STATIC_BASE_PRICES[a.symbol] ?? 0;
       const current = fromContext ?? fallback;

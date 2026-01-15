@@ -236,25 +236,25 @@ export const TradingChart = ({
     setIsLoadingData(true);
     const timeframeSeconds = getTimeframeSeconds(timeframe);
     const now = Math.floor(Date.now() / 1000);
+    const bucketTime = Math.floor(now / timeframeSeconds) * timeframeSeconds;
     const [minCandles, maxCandles] = getCandleLimits(timeframe);
     
-    // Mock data generation
+    // Mock data generation BACKWARDS from current price
+    // This ensures the chart connects perfectly to the current real-time price
     const chartData: CandlestickData[] = [];
-    let currentPrice = asset.current_price;
-    // Start from the past
-    let currentTime = now - (maxCandles * timeframeSeconds);
+    let currentClose = asset.current_price;
+    let currentTime = bucketTime;
 
-    // Generate trend based on price change
-    const isBullish = (asset.price_change_24h || 0) > 0;
-    const volatility = currentPrice * 0.002; // 0.2% volatility
+    const volatility = currentClose * 0.002; // 0.2% base volatility
 
     for (let i = 0; i < maxCandles; i++) {
-      const trend = isBullish ? volatility * 0.1 : -volatility * 0.1;
-      const move = (Math.random() - 0.5) * volatility + trend;
-      const open = currentPrice;
-      const close = currentPrice + move;
+      const move = (Math.random() - 0.5) * volatility;
+      const close = currentClose;
+      const open = close - move;
       const high = Math.max(open, close) + Math.random() * volatility * 0.5;
       const low = Math.min(open, close) - Math.random() * volatility * 0.5;
+
+      // We push to array, but since we go backwards in time, we'll reverse it later
       chartData.push({
         time: currentTime as UTCTimestamp,
         open,
@@ -262,24 +262,14 @@ export const TradingChart = ({
         low,
         close
       });
-      currentPrice = close;
-      currentTime += timeframeSeconds;
+
+      // Prepare for previous candle (previous candle's close ~ this candle's open)
+      currentClose = open;
+      currentTime -= timeframeSeconds;
     }
 
-    if (chartData.length > 0) {
-      const lastIndex = chartData.length - 1;
-      const last = chartData[lastIndex];
-      const adjustedClose = asset.current_price;
-      const adjustedHigh = Math.max(last.high, adjustedClose, last.open);
-      const adjustedLow = Math.min(last.low, adjustedClose, last.open);
-      chartData[lastIndex] = {
-        time: last.time,
-        open: last.open,
-        high: adjustedHigh,
-        low: adjustedLow,
-        close: adjustedClose
-      };
-    }
+    // Reverse to get chronological order
+    chartData.reverse();
 
     candlestickSeriesRef.current.setData(chartData);
     setLastCandle(chartData[chartData.length - 1] || null);

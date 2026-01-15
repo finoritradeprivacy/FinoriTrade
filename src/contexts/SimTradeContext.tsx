@@ -1,4 +1,5 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { ASSETS } from "@/data/assets";
 
 type Side = "buy" | "sell";
 type OrderType = "market" | "limit" | "stop";
@@ -24,6 +25,7 @@ export interface Trade {
   price: number;
   totalValue: number;
   createdAt: number;
+  
 }
 
 interface Holding {
@@ -40,6 +42,17 @@ export interface Asset {
   [key: string]: unknown;
 }
 
+type AlertCondition = "above" | "below";
+interface PriceAlert {
+  id: string;
+  assetId: string;
+  targetPrice: number;
+  condition: AlertCondition;
+  isActive: boolean;
+  triggeredAt: number | null;
+  createdAt: number;
+}
+
 interface SimTradeState {
   usdtBalance: number;
   holdings: Record<string, Holding>;
@@ -47,6 +60,7 @@ interface SimTradeState {
   trades: Trade[];
   prices: Record<string, number>;
   alerts: PriceAlert[];
+  timeOnSite: number;
 }
 
 interface SimTradeContextValue extends SimTradeState {
@@ -67,28 +81,36 @@ interface SimTradeContextValue extends SimTradeState {
 const SimTradeContext = createContext<SimTradeContextValue | null>(null);
 
 const DEFAULT_BALANCE = 100000;
-const DEFAULT_SYMBOLS = ["BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "ADA"];
-
-type AlertCondition = "above" | "below";
-interface PriceAlert {
-  id: string;
-  assetId: string;
-  targetPrice: number;
-  condition: AlertCondition;
-  isActive: boolean;
-  triggeredAt: number | null;
-  createdAt: number;
-}
+const TRACKED_CRYPTO = new Set(ASSETS.filter(a => a.category === "crypto").map(a => a.symbol));
+const TRACKED_STOCKS = ASSETS.filter(a => a.category === "stocks").map(a => a.symbol);
 
 function loadState(): SimTradeState {
   const raw = localStorage.getItem("simtrade_state");
   if (raw) {
     try {
       const parsed = JSON.parse(raw);
-      return { ...parsed, prices: parsed.prices || {}, alerts: parsed.alerts || [] } as SimTradeState;
-    } catch { void 0; }
+      return {
+        usdtBalance: parsed.usdtBalance ?? DEFAULT_BALANCE,
+        holdings: parsed.holdings ?? {},
+        orders: parsed.orders ?? [],
+        trades: parsed.trades ?? [],
+        prices: {}, // Prices are volatile, don't load them
+        alerts: parsed.alerts ?? [],
+        timeOnSite: parsed.timeOnSite ?? 0,
+      };
+    } catch {
+      // ignore
+    }
   }
-  return { usdtBalance: DEFAULT_BALANCE, holdings: {}, orders: [], trades: [], prices: {}, alerts: [] };
+  return {
+    usdtBalance: DEFAULT_BALANCE,
+    holdings: {},
+    orders: [],
+    trades: [],
+    prices: {},
+    alerts: [],
+    timeOnSite: 0,
+  };
 }
 
 function saveState(state: SimTradeState) {
@@ -97,52 +119,109 @@ function saveState(state: SimTradeState) {
 }
 
 export function SimTradeProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<SimTradeState>(loadState());
-  const wsRef = useRef<WebSocket | null>(null);
-  const symbols = useMemo(() => DEFAULT_SYMBOLS, []);
+  const [state, setState] = useState<SimTradeState>(loadState);
   const [priceFeedPaused, setPriceFeedPausedState] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     saveState(state);
   }, [state]);
 
+  // Time on Site Tracking
   useEffect(() => {
-    const streams = symbols.map(s => `${s.toLowerCase()}usdt@miniTicker`).join("/");
-    const url = `wss://stream.binance.com:9443/stream?streams=${streams}`;
+    const interval = setInterval(() => {
+      setState(prev => ({ ...prev, timeOnSite: (prev.timeOnSite || 0) + 1 }));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Crypto WebSocket Connection
+  useEffect(() => {
+    // Use !miniTicker@arr to get all market updates efficiently
+    const url = "wss://stream.binance.com:9443/ws/!miniTicker@arr";
     const ws = new WebSocket(url);
     wsRef.current = ws;
+
     ws.onmessage = ev => {
       try {
-        const payload = JSON.parse(ev.data);
-        const d = payload?.data;
-        if (!d || !d.s || !d.c) return;
+        const data = JSON.parse(ev.data);
+        if (!Array.isArray(data)) return;
         if (priceFeedPaused) return;
-        const sym = String(d.s).toUpperCase().replace("USDT", "");
-        const price = Number(d.c);
-        setState(prev => {
-          const nextPrices = { ...prev.prices, [sym]: price };
-          // Evaluate alerts for this symbol
-          const updatedAlerts = prev.alerts.map(alert => {
-            if (!alert.isActive || alert.assetId !== sym) return alert;
-            const shouldTrigger =
-              (alert.condition === "above" && price >= alert.targetPrice) ||
-              (alert.condition === "below" && price <= alert.targetPrice);
-            if (shouldTrigger) {
-              return { ...alert, isActive: false, triggeredAt: Date.now() };
-            }
-            return alert;
-          });
-          return { ...prev, prices: nextPrices, alerts: updatedAlerts };
+
+        const updates: Record<string, number> = {};
+        let hasUpdates = false;
+
+        data.forEach((d: any) => {
+          const rawSym = d.s;
+          if (!rawSym.endsWith("USDT")) return;
+          const sym = rawSym.replace("USDT", "");
+          
+          if (TRACKED_CRYPTO.has(sym)) {
+            updates[sym] = Number(d.c);
+            hasUpdates = true;
+          }
         });
+
+        if (hasUpdates) {
+          setState(prev => {
+            const nextPrices = { ...prev.prices, ...updates };
+            // Check alerts
+            let alertsUpdated = false;
+            const updatedAlerts = prev.alerts.map(alert => {
+              const currentPrice = nextPrices[alert.assetId];
+              if (!alert.isActive || !currentPrice) return alert;
+              
+              const shouldTrigger =
+                (alert.condition === "above" && currentPrice >= alert.targetPrice) ||
+                (alert.condition === "below" && currentPrice <= alert.targetPrice);
+                
+              if (shouldTrigger) {
+                alertsUpdated = true;
+                return { ...alert, isActive: false, triggeredAt: Date.now() };
+              }
+              return alert;
+            });
+
+            if (!alertsUpdated && Object.keys(updates).length === 0) return prev;
+            return { ...prev, prices: nextPrices, alerts: updatedAlerts };
+          });
+        }
       } catch { void 0; }
     };
+
     return () => {
       try {
         ws.close();
       } catch { void 0; }
       wsRef.current = null;
     };
-  }, [symbols, priceFeedPaused]);
+  }, [priceFeedPaused]);
+
+  // Stock Price Simulation
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (priceFeedPaused) return;
+      setState(prev => {
+        const nextPrices = { ...prev.prices };
+        let hasUpdates = false;
+
+        TRACKED_STOCKS.forEach(sym => {
+          // Initialize if missing (mock start price) or update existing
+          const current = nextPrices[sym] || (100 + Math.random() * 400); // Random start 100-500
+          const changePercent = (Math.random() - 0.5) * 0.002; // 0.2% max move
+          const next = current * (1 + changePercent);
+          nextPrices[sym] = next;
+          hasUpdates = true;
+        });
+
+        if (hasUpdates) {
+             return { ...prev, prices: nextPrices };
+        }
+        return prev;
+      });
+    }, 3000); // Update stocks every 3s
+    return () => clearInterval(interval);
+  }, [priceFeedPaused]);
 
   const placeMarketOrder = (symbol: string, side: Side, quantity: number, price: number) => {
     if (!Number.isFinite(quantity) || quantity <= 0) return { ok: false, error: "Invalid quantity" };
@@ -327,7 +406,7 @@ export function SimTradeProvider({ children }: { children: React.ReactNode }) {
   };
 
   const resetAll = () => {
-    const fresh = { usdtBalance: DEFAULT_BALANCE, holdings: {}, orders: [], trades: [], prices: {}, alerts: [] };
+    const fresh: SimTradeState = { usdtBalance: DEFAULT_BALANCE, holdings: {}, orders: [], trades: [], prices: {}, alerts: [], timeOnSite: 0 };
     setState(fresh);
     saveState(fresh);
   };

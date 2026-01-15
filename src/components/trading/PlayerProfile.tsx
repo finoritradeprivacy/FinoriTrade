@@ -21,10 +21,9 @@ interface PlayerData {
 
 const PlayerProfile = () => {
   const { user } = useAuth();
-  const { usdtBalance, trades, holdings, prices } = useSimTrade();
+  const { usdtBalance, trades, holdings, prices, timeOnSite } = useSimTrade();
   const [playerData, setPlayerData] = useState<PlayerData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [timeOnSiteSeconds, setTimeOnSiteSeconds] = useState(0);
 
   useEffect(() => {
     const fetchPlayerData = async () => {
@@ -66,28 +65,6 @@ const PlayerProfile = () => {
 
     fetchPlayerData();
   }, [user, usdtBalance, trades, holdings, prices]);
-
-  useEffect(() => {
-    if (!user) return;
-    const key = `time_on_site_${user.id}`;
-    const stored = localStorage.getItem(key);
-    const initial = stored ? Number(stored) || 0 : 0;
-    setTimeOnSiteSeconds(initial);
-    let last = Date.now();
-    const interval = setInterval(() => {
-      const now = Date.now();
-      const deltaSec = Math.floor((now - last) / 1000);
-      if (deltaSec > 0) {
-        last = now;
-        setTimeOnSiteSeconds(prev => {
-          const next = prev + deltaSec;
-          localStorage.setItem(key, String(next));
-          return next;
-        });
-      }
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [user]);
 
   if (loading || !playerData) {
     return (
