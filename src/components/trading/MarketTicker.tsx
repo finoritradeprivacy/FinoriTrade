@@ -26,6 +26,7 @@ const MarketTicker = () => {
   const contentRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<number | null>(null);
   const lastTimeRef = useRef<number>(0);
+  const baselineRef = useRef<Record<string, number>>({});
 
   // Initialize and subscribe to updates
   useEffect(() => {
@@ -39,7 +40,12 @@ const MarketTicker = () => {
       const sym = String(p.s).toUpperCase().replace('USDT','');
       const price = Number(p.c);
       setWsPrices(prev => ({ ...prev, [sym]: price }));
-      setAssets(prev => prev.map(a => a.symbol === sym ? { ...a, current_price: price } : a));
+      if (price > 0 && baselineRef.current[sym] == null) {
+        baselineRef.current[sym] = price;
+      }
+      const baseline = baselineRef.current[sym] ?? price;
+      const change = baseline > 0 ? (price - baseline) / baseline : 0;
+      setAssets(prev => prev.map(a => a.symbol === sym ? { ...a, current_price: price, price_change_24h: change } : a));
     };
 
     return () => {

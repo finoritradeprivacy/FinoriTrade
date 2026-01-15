@@ -24,6 +24,7 @@ const PlayerProfile = () => {
   const { usdtBalance, trades, holdings, prices } = useSimTrade();
   const [playerData, setPlayerData] = useState<PlayerData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [timeOnSiteSeconds, setTimeOnSiteSeconds] = useState(0);
 
   useEffect(() => {
     const fetchPlayerData = async () => {
@@ -66,6 +67,28 @@ const PlayerProfile = () => {
     fetchPlayerData();
   }, [user, usdtBalance, trades, holdings, prices]);
 
+  useEffect(() => {
+    if (!user) return;
+    const key = `time_on_site_${user.id}`;
+    const stored = localStorage.getItem(key);
+    const initial = stored ? Number(stored) || 0 : 0;
+    setTimeOnSiteSeconds(initial);
+    let last = Date.now();
+    const interval = setInterval(() => {
+      const now = Date.now();
+      const deltaSec = Math.floor((now - last) / 1000);
+      if (deltaSec > 0) {
+        last = now;
+        setTimeOnSiteSeconds(prev => {
+          const next = prev + deltaSec;
+          localStorage.setItem(key, String(next));
+          return next;
+        });
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [user]);
+
   if (loading || !playerData) {
     return (
       <Card className="p-4">
@@ -92,6 +115,16 @@ const PlayerProfile = () => {
   const xpInCurrentLevel = playerData.total_xp - xpForCurrentLevel;
   const xpProgress = Math.min(100, (xpInCurrentLevel / xpForNextLevel) * 100);
   const isProfitable = playerData.total_profit_loss >= 0;
+
+  const formatTimeOnSite = (secondsTotal: number) => {
+    const hours = Math.floor(secondsTotal / 3600);
+    const minutes = Math.floor((secondsTotal % 3600) / 60);
+    const seconds = secondsTotal % 60;
+    if (hours > 0) {
+      return `${hours}h ${minutes.toString().padStart(2, "0")}m`;
+    }
+    return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
+  };
 
   return (
     <Card className="p-4 space-y-4">
@@ -163,6 +196,15 @@ const PlayerProfile = () => {
           </div>
           <p className="font-semibold text-foreground">
             {playerData.total_trades}
+          </p>
+        </div>
+
+        <div className="space-y-1">
+          <div className="text-muted-foreground">
+            <span>Time on Site</span>
+          </div>
+          <p className="font-semibold text-foreground">
+            {formatTimeOnSite(timeOnSiteSeconds)}
           </p>
         </div>
       </div>

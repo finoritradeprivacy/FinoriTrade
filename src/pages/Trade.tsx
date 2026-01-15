@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSimTrade } from "@/contexts/SimTradeContext";
@@ -26,6 +26,26 @@ interface AssetLite {
   dividend_yield?: number;
 }
 
+const STATIC_BASE_PRICES: Record<string, number> = {
+  BTC: 45000,
+  ETH: 2500,
+  SOL: 100,
+  BNB: 600,
+  XRP: 0.55,
+  DOGE: 0.08,
+  ADA: 0.5,
+  AAPL: 175,
+  MSFT: 380,
+  GOOGL: 140,
+  TSLA: 250,
+  AMZN: 155,
+  "EUR/USD": 1.09,
+  "GBP/USD": 1.27,
+  "USD/JPY": 149,
+  "AUD/USD": 0.65,
+  "USD/CAD": 1.36,
+};
+
 const Trade = () => {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
@@ -33,6 +53,7 @@ const Trade = () => {
   const [selectedAsset, setSelectedAsset] = useState<AssetLite | null>(null);
   const [assets, setAssets] = useState<AssetLite[]>([]);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const initialPricesRef = useRef<Record<string, number>>({});
 
   const handleTradeSuccess = () => {
     setRefreshTrigger(prev => prev + 1);
@@ -45,6 +66,12 @@ const Trade = () => {
   }, [user, loading, navigate]);
 
   useEffect(() => {
+    Object.entries(prices).forEach(([symbol, price]) => {
+      if (price > 0 && initialPricesRef.current[symbol] == null) {
+        initialPricesRef.current[symbol] = price;
+      }
+    });
+
     const base: Omit<AssetLite, "current_price" | "price_change_24h">[] = [
       { id: "BTC", symbol: "BTC", name: "Bitcoin", category: "crypto" },
       { id: "ETH", symbol: "ETH", name: "Ethereum", category: "crypto" },
@@ -53,14 +80,39 @@ const Trade = () => {
       { id: "XRP", symbol: "XRP", name: "XRP", category: "crypto" },
       { id: "DOGE", symbol: "DOGE", name: "Dogecoin", category: "crypto" },
       { id: "ADA", symbol: "ADA", name: "Cardano", category: "crypto" },
+      { id: "AAPL", symbol: "AAPL", name: "Apple Inc.", category: "stocks", dividend_yield: 0.005 },
+      { id: "MSFT", symbol: "MSFT", name: "Microsoft Corp.", category: "stocks", dividend_yield: 0.008 },
+      { id: "GOOGL", symbol: "GOOGL", name: "Alphabet Inc.", category: "stocks" },
+      { id: "TSLA", symbol: "TSLA", name: "Tesla Inc.", category: "stocks" },
+      { id: "AMZN", symbol: "AMZN", name: "Amazon.com Inc.", category: "stocks" },
+      { id: "EUR/USD", symbol: "EUR/USD", name: "EUR / USD", category: "forex" },
+      { id: "GBP/USD", symbol: "GBP/USD", name: "GBP / USD", category: "forex" },
+      { id: "USD/JPY", symbol: "USD/JPY", name: "USD / JPY", category: "forex" },
+      { id: "AUD/USD", symbol: "AUD/USD", name: "AUD / USD", category: "forex" },
+      { id: "USD/CAD", symbol: "USD/CAD", name: "USD / CAD", category: "forex" },
     ];
-    const withPrices: AssetLite[] = base.map(a => ({
-      ...a,
-      current_price: prices[a.symbol] || 0,
-      price_change_24h: null,
-    }));
+
+    const withPrices: AssetLite[] = base.map(a => {
+      const fromContext = prices[a.symbol];
+      const fallback = STATIC_BASE_PRICES[a.symbol] ?? 0;
+      const current = fromContext ?? fallback;
+      const baseline = initialPricesRef.current[a.symbol] ?? current;
+      const change = baseline > 0 && current > 0 ? (current - baseline) / baseline : 0;
+      return {
+        ...a,
+        current_price: current,
+        price_change_24h: change,
+      };
+    });
+
     setAssets(withPrices);
-    setSelectedAsset(withPrices[0]);
+    setSelectedAsset(prev => {
+      if (prev) {
+        const found = withPrices.find(a => a.id === prev.id);
+        return found || withPrices[0] || null;
+      }
+      return withPrices[0] || null;
+    });
   }, [prices]);
 
   if (loading || !user) {

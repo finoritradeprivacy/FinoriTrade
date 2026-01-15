@@ -229,6 +229,10 @@ export const TradingChart = ({
   // Generate historical candlestick data
   const generateHistoricalData = useCallback(async () => {
     if (!candlestickSeriesRef.current || !asset) return;
+    if (!asset.current_price || asset.current_price <= 0) {
+      setIsLoadingData(true);
+      return;
+    }
     setIsLoadingData(true);
     const timeframeSeconds = getTimeframeSeconds(timeframe);
     const now = Math.floor(Date.now() / 1000);
@@ -245,27 +249,38 @@ export const TradingChart = ({
     const volatility = currentPrice * 0.002; // 0.2% volatility
 
     for (let i = 0; i < maxCandles; i++) {
-        // Add some noise and trend
-        const trend = isBullish ? volatility * 0.1 : -volatility * 0.1;
-        const move = (Math.random() - 0.5) * volatility + trend;
-        
-        const open = currentPrice;
-        const close = currentPrice + move;
-        const high = Math.max(open, close) + Math.random() * volatility * 0.5;
-        const low = Math.min(open, close) - Math.random() * volatility * 0.5;
-        
-        chartData.push({
-            time: currentTime as UTCTimestamp,
-            open,
-            high,
-            low,
-            close
-        });
-        
-        currentPrice = close;
-        currentTime += timeframeSeconds;
+      const trend = isBullish ? volatility * 0.1 : -volatility * 0.1;
+      const move = (Math.random() - 0.5) * volatility + trend;
+      const open = currentPrice;
+      const close = currentPrice + move;
+      const high = Math.max(open, close) + Math.random() * volatility * 0.5;
+      const low = Math.min(open, close) - Math.random() * volatility * 0.5;
+      chartData.push({
+        time: currentTime as UTCTimestamp,
+        open,
+        high,
+        low,
+        close
+      });
+      currentPrice = close;
+      currentTime += timeframeSeconds;
     }
-    
+
+    if (chartData.length > 0) {
+      const lastIndex = chartData.length - 1;
+      const last = chartData[lastIndex];
+      const adjustedClose = asset.current_price;
+      const adjustedHigh = Math.max(last.high, adjustedClose, last.open);
+      const adjustedLow = Math.min(last.low, adjustedClose, last.open);
+      chartData[lastIndex] = {
+        time: last.time,
+        open: last.open,
+        high: adjustedHigh,
+        low: adjustedLow,
+        close: adjustedClose
+      };
+    }
+
     candlestickSeriesRef.current.setData(chartData);
     setLastCandle(chartData[chartData.length - 1] || null);
     setIsLoadingData(false);
@@ -282,52 +297,40 @@ export const TradingChart = ({
     setTimeframeCooldown(20);
   };
 
-  // Real-time price updates (simulated)
   useEffect(() => {
     if (!asset || !candlestickSeriesRef.current) return;
+    if (!asset.current_price || asset.current_price <= 0) return;
 
-    // Simulated tick interval
-    const interval = setInterval(() => {
-        const lastCandle = lastCandleRef.current;
-        if (!lastCandle) return;
+    const now = Math.floor(Date.now() / 1000);
+    const timeframeSeconds = getTimeframeSeconds(timeframe);
+    const bucketTime = Math.floor(now / timeframeSeconds) * timeframeSeconds as UTCTimestamp;
+    const currentPrice = asset.current_price;
 
-        const now = Math.floor(Date.now() / 1000);
-        const timeframeSeconds = getTimeframeSeconds(timeframe);
-        const bucketTime = Math.floor(now / timeframeSeconds) * timeframeSeconds as UTCTimestamp;
-
-        const currentPrice = lastCandle.close;
-        const volatility = currentPrice * 0.0005; // Smaller volatility for ticks
-        const move = (Math.random() - 0.5) * volatility;
-        const newPrice = currentPrice + move;
-
-        if (lastCandle.time === bucketTime) {
-            // Update current candle
-            const updatedCandle: CandlestickData = {
-                time: bucketTime,
-                open: lastCandle.open,
-                high: Math.max(lastCandle.high, newPrice),
-                low: Math.min(lastCandle.low, newPrice),
-                close: newPrice
-            };
-            candlestickSeriesRef.current?.update(updatedCandle);
-            setLastCandle(updatedCandle);
-        } else {
-            // New candle
-            const newCandle: CandlestickData = {
-                time: bucketTime,
-                open: currentPrice,
-                high: newPrice,
-                low: newPrice,
-                close: newPrice
-            };
-            candlestickSeriesRef.current?.update(newCandle);
-            setLastCandle(newCandle);
-        }
-
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [asset, timeframe]);
+    setLastCandle(prev => {
+      let next: CandlestickData;
+      if (!prev || prev.time !== bucketTime) {
+        const open = prev?.close ?? currentPrice;
+        next = {
+          time: bucketTime,
+          open,
+          high: currentPrice,
+          low: currentPrice,
+          close: currentPrice
+        };
+        candlestickSeriesRef.current?.update(next);
+      } else {
+        next = {
+          time: bucketTime,
+          open: prev.open,
+          high: Math.max(prev.high, currentPrice),
+          low: Math.min(prev.low, currentPrice),
+          close: currentPrice
+        };
+        candlestickSeriesRef.current?.update(next);
+      }
+      return next;
+    });
+  }, [asset?.id, asset?.current_price, timeframe]);
 
 
   // Load trades for current asset
@@ -576,13 +579,11 @@ export const TradingChart = ({
 
   // Note: handleTimeframeChange is defined above with cooldown logic
 
-  // Generate historical data when asset changes, timeframe changes, or chart initializes
   useEffect(() => {
     if (isInitialized && asset) {
-      // Ensure lastCandle aligns with freshly loaded data for this asset
       generateHistoricalData();
     }
-  }, [timeframe, isInitialized, asset?.id]);
+  }, [generateHistoricalData, isInitialized, asset]);
 
   // Remove specific drawing
   const removeDrawing = (id: string) => {
