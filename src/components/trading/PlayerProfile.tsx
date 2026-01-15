@@ -181,7 +181,7 @@ const PlayerProfile = () => {
             <span>Time on Site</span>
           </div>
           <p className="font-semibold text-foreground">
-            {formatTimeOnSite(timeOnSiteSeconds)}
+            {formatTimeOnSite(timeOnSite || 0)}
           </p>
         </div>
       </div>
