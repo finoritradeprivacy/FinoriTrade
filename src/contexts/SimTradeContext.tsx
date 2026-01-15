@@ -28,6 +28,27 @@ export interface Trade {
   
 }
 
+interface DividendAsset {
+  asset_id: string;
+  amount: number;
+  shares: number;
+  symbol?: string;
+}
+
+export interface AppNotification {
+  id: string;
+  notification_type: string;
+  title: string;
+  message: string;
+  is_read: boolean;
+  created_at: string;
+  metadata: {
+    total_amount?: number;
+    assets?: DividendAsset[];
+    [key: string]: unknown;
+  };
+}
+
 interface Holding {
   quantity: number;
   averageBuyPrice: number;
@@ -61,6 +82,7 @@ interface SimTradeState {
   prices: Record<string, number>;
   alerts: PriceAlert[];
   timeOnSite: number;
+  notifications: AppNotification[];
 }
 
 interface SimTradeContextValue extends SimTradeState {
@@ -76,6 +98,11 @@ interface SimTradeContextValue extends SimTradeState {
   applyVolatility: (multiplier: number) => void;
   applyMarketCrash: () => void;
   modifyBalance: (amount: number) => void;
+  processDividendsForStocks: (options?: { annualYieldPercent?: number; symbolFilter?: string }) => { totalAmount: number; assets: DividendAsset[] };
+  addNotification: (input: Omit<AppNotification, "id" | "created_at" | "is_read">) => void;
+  markNotificationRead: (id: string) => void;
+  markAllNotificationsRead: () => void;
+  grantReferralReward: () => void;
 }
 
 const SimTradeContext = createContext<SimTradeContextValue | null>(null);
@@ -98,6 +125,7 @@ function loadState(): SimTradeState {
         prices: {}, // Prices are volatile, don't load them
         alerts: parsed.alerts ?? [],
         timeOnSite: parsed.timeOnSite ?? 0,
+        notifications: parsed.notifications ?? [],
       };
     } catch {
       // ignore
@@ -111,6 +139,7 @@ function loadState(): SimTradeState {
     prices: {},
     alerts: [],
     timeOnSite: 0,
+    notifications: [],
   };
 }
 
@@ -487,6 +516,115 @@ export function SimTradeProvider({ children }: { children: React.ReactNode }) {
     }));
   };
 
+  const addNotification = (input: Omit<AppNotification, "id" | "created_at" | "is_read">) => {
+    const now = new Date().toISOString();
+    const id = `N${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const notification: AppNotification = {
+      id,
+      created_at: now,
+      is_read: false,
+      ...input,
+    };
+    setState(prev => ({
+      ...prev,
+      notifications: [notification, ...prev.notifications],
+    }));
+  };
+
+  const markNotificationRead = (id: string) => {
+    setState(prev => ({
+      ...prev,
+      notifications: prev.notifications.map(n =>
+        n.id === id ? { ...n, is_read: true } : n
+      ),
+    }));
+  };
+
+  const markAllNotificationsRead = () => {
+    setState(prev => ({
+      ...prev,
+      notifications: prev.notifications.map(n =>
+        n.is_read ? n : { ...n, is_read: true }
+      ),
+    }));
+  };
+
+  const processDividendsForStocks = (options?: { annualYieldPercent?: number; symbolFilter?: string }) => {
+    const annualYieldPercent = options?.annualYieldPercent ?? 4.8;
+    const symbolFilter = options?.symbolFilter;
+    const annualYield = annualYieldPercent / 100;
+    const dailyYield = annualYield / 365;
+
+    let totalAmount = 0;
+    const assets: DividendAsset[] = [];
+
+    setState(prev => {
+      let usdtBalance = prev.usdtBalance;
+
+      Object.entries(prev.holdings).forEach(([symbol, holding]) => {
+        const assetConfig = ASSETS.find(a => a.symbol === symbol);
+        if (!assetConfig || assetConfig.category !== "stocks") return;
+        if (symbolFilter && symbol !== symbolFilter) return;
+        if (holding.quantity <= 0) return;
+
+        const price = prev.prices[symbol] ?? holding.averageBuyPrice;
+        if (!price || price <= 0) return;
+
+        const amount = holding.quantity * price * dailyYield;
+        if (amount <= 0) return;
+
+        totalAmount += amount;
+        usdtBalance += amount;
+        assets.push({
+          asset_id: assetConfig.id,
+          amount,
+          shares: holding.quantity,
+          symbol: assetConfig.symbol,
+        });
+      });
+
+      if (totalAmount <= 0) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        usdtBalance,
+      };
+    });
+
+    if (totalAmount > 0 && assets.length > 0) {
+      addNotification({
+        notification_type: "dividend",
+        title: "Dividend Payout",
+        message: "You received dividend income from your stock holdings.",
+        metadata: {
+          total_amount: totalAmount,
+          assets,
+        },
+      });
+    }
+
+    return { totalAmount, assets };
+  };
+
+  const grantReferralReward = () => {
+    const rewardAmount = 17500;
+    setState(prev => ({
+      ...prev,
+      usdtBalance: prev.usdtBalance + rewardAmount,
+    }));
+
+    addNotification({
+      notification_type: "referral",
+      title: "Referral Reward",
+      message: `You received ${rewardAmount.toLocaleString()} USDT for inviting a friend.`,
+      metadata: {
+        reward_amount: rewardAmount,
+      },
+    });
+  };
+
   const value: SimTradeContextValue = {
     ...state,
     placeMarketOrder,
@@ -501,6 +639,11 @@ export function SimTradeProvider({ children }: { children: React.ReactNode }) {
     applyVolatility,
     applyMarketCrash,
     modifyBalance,
+    processDividendsForStocks,
+    addNotification,
+    markNotificationRead,
+    markAllNotificationsRead,
+    grantReferralReward,
   };
 
   return <SimTradeContext.Provider value={value}>{children}</SimTradeContext.Provider>;

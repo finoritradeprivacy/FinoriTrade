@@ -9,35 +9,14 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
+import { useSimTrade } from "@/contexts/SimTradeContext";
 import { formatDistanceToNow } from "date-fns";
 import { useSoundAlerts } from "@/hooks/useSoundAlerts";
 
-interface DividendAsset {
-  asset_id: string;
-  amount: number;
-  shares: number;
-  symbol?: string;
-}
-
-interface Notification {
-  id: string;
-  notification_type: string;
-  title: string;
-  message: string;
-  is_read: boolean;
-  created_at: string;
-  metadata: {
-    total_amount?: number;
-    assets?: DividendAsset[];
-    payment_date?: string;
-    [key: string]: unknown;
-  };
-}
-
 export const UserNotifications = () => {
   const { user } = useAuth();
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const { notifications, markNotificationRead, markAllNotificationsRead } = useSimTrade();
+  const unreadCount = notifications.filter(n => !n.is_read).length;
   const [isOpen, setIsOpen] = useState(false);
   const [animatingBell, setAnimatingBell] = useState(false);
   const [expandedNotifications, setExpandedNotifications] = useState<Set<string>>(new Set());
@@ -45,28 +24,20 @@ export const UserNotifications = () => {
   const lastNotificationIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!user) {
-      setNotifications([]);
-      setUnreadCount(0);
-      return;
-    }
-    setNotifications([]);
-    setUnreadCount(0);
-  }, [user]);
-
-  const markAsRead = async (id: string) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, is_read: true } : n))
-    );
-    setUnreadCount((prev) => Math.max(0, prev - 1));
-  };
-
-  const markAllAsRead = async () => {
     if (!user) return;
+    if (!notifications.length) return;
 
-    setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
-    setUnreadCount(0);
-  };
+    const latest = notifications[0];
+    if (lastNotificationIdRef.current === latest.id) return;
+    lastNotificationIdRef.current = latest.id;
+
+    if (soundEnabled) {
+      playNotificationSound();
+    }
+    setAnimatingBell(true);
+    const timeout = setTimeout(() => setAnimatingBell(false), 1000);
+    return () => clearTimeout(timeout);
+  }, [notifications, user, soundEnabled, playNotificationSound]);
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
@@ -142,7 +113,7 @@ export const UserNotifications = () => {
               variant="ghost"
               size="sm"
               className="text-xs h-7"
-              onClick={markAllAsRead}
+              onClick={markAllNotificationsRead}
             >
               Mark all read
             </Button>
@@ -158,7 +129,7 @@ export const UserNotifications = () => {
               {notifications.map((notification) => {
                 const isDividend = notification.notification_type === "dividend";
                 const isExpanded = expandedNotifications.has(notification.id);
-                const dividendAssets = notification.metadata?.assets as DividendAsset[] | undefined;
+                const dividendAssets = notification.metadata?.assets;
                 
                 return (
                   <div
@@ -167,7 +138,7 @@ export const UserNotifications = () => {
                       !notification.is_read ? "bg-primary/5" : ""
                     }`}
                     onClick={() => {
-                      if (!notification.is_read) markAsRead(notification.id);
+                      if (!notification.is_read) markNotificationRead(notification.id);
                       if (isDividend && dividendAssets?.length) toggleExpanded(notification.id);
                     }}
                   >

@@ -27,15 +27,15 @@ const PlayerProfile = () => {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (!user || typeof window === "undefined") return;
     try {
-      const stored = window.localStorage.getItem("finori_avatar_url");
+      const stored = window.localStorage.getItem(`finori_avatar_url_${user.id}`);
       if (stored) {
         setAvatarUrl(stored);
       }
     } catch {
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     const fetchPlayerData = async () => {
@@ -87,8 +87,8 @@ const PlayerProfile = () => {
       if (typeof result === "string") {
         setAvatarUrl(result);
         try {
-          if (typeof window !== "undefined") {
-            window.localStorage.setItem("finori_avatar_url", result);
+          if (typeof window !== "undefined" && user?.id) {
+            window.localStorage.setItem(`finori_avatar_url_${user.id}`, result);
           }
         } catch {
         }

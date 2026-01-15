@@ -121,12 +121,22 @@ export const Challenges = () => {
     
     setStreak(currentStreak);
 
-    // Mock week status
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    const week: DayStatus[] = days.map((day, i) => ({
-      day,
-      status: i < new Date().getDay() ? 'completed' : i === new Date().getDay() ? 'pending' : 'pending' // Simplified
-    }));
+    const streakInWeek = Math.max(0, Math.min(currentStreak, 7));
+    const todayDate = new Date();
+    const week: DayStatus[] = [];
+
+    for (let offset = 6; offset >= 0; offset--) {
+      const d = new Date(todayDate);
+      d.setDate(todayDate.getDate() - (6 - offset));
+      const label = d.toLocaleDateString(undefined, { weekday: "short" });
+      const daysFromToday = 6 - offset;
+      const isCompleted = daysFromToday < streakInWeek;
+      week.push({
+        day: label,
+        status: isCompleted ? "completed" : "pending",
+      });
+    }
+
     setWeekStatus(week);
   };
 

@@ -87,13 +87,20 @@ const Trade = () => {
       };
     });
 
-    setAssets(withPrices);
+    const filtered = withPrices.filter(a => {
+      if (a.category === "crypto" || a.category === "stocks") {
+        return a.current_price >= 1;
+      }
+      return true;
+    });
+
+    setAssets(filtered);
     setSelectedAsset(prev => {
       if (prev) {
-        const found = withPrices.find(a => a.id === prev.id);
-        return found || withPrices[0] || null;
+        const found = filtered.find(a => a.id === prev.id);
+        return found || filtered[0] || null;
       }
-      return withPrices[0] || null;
+      return filtered[0] || null;
     });
   }, [prices]);
 

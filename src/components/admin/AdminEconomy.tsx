@@ -45,7 +45,7 @@ interface StockAsset {
 
 export const AdminEconomy = () => {
   const { user } = useAuth();
-  const { modifyBalance, usdtBalance } = useSimTrade();
+  const { modifyBalance, usdtBalance, processDividendsForStocks } = useSimTrade();
   const [settings, setSettings] = useState<TradingSetting[]>([]);
   const [topTraders, setTopTraders] = useState<TopTrader[]>([]);
   const [stockAssets, setStockAssets] = useState<StockAsset[]>([]);
@@ -169,7 +169,20 @@ export const AdminEconomy = () => {
     if (!selectedStock) return;
     
     try {
-      toast.success(`Dividends distributed for ${selectedStock.symbol} at ${dividendYield}% (Simulated)`);
+      const { totalAmount, assets } = processDividendsForStocks({
+        annualYieldPercent: dividendYield,
+        symbolFilter: selectedStock.symbol,
+      });
+
+      if (totalAmount <= 0 || assets.length === 0) {
+        toast.info(`No eligible holdings for ${selectedStock.symbol} to receive dividends.`);
+        setShowDividendDialog(false);
+        return;
+      }
+
+      toast.success(
+        `Dividends distributed for ${selectedStock.symbol}. Total paid: $${totalAmount.toFixed(2)}`
+      );
       setShowDividendDialog(false);
     } catch (error) {
       console.error('Error distributing dividend:', error);

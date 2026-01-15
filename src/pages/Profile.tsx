@@ -32,7 +32,7 @@ interface ProfileData {
 
 const Profile = () => {
   const { user, signOut, resendVerificationEmail } = useAuth();
-  const { usdtBalance, holdings, trades, prices, resetAll } = useSimTrade();
+  const { usdtBalance, holdings, trades, prices, resetAll, grantReferralReward } = useSimTrade();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [profileData, setProfileData] = useState<ProfileData | null>(null);
@@ -98,6 +98,17 @@ const Profile = () => {
     setEmailVerified(user.email_confirmed_at !== null);
   }, [user, navigate, fetchProfileData]);
 
+  useEffect(() => {
+    if (!user || typeof window === "undefined") return;
+    try {
+      const stored = window.localStorage.getItem(`finori_avatar_url_${user.id}`);
+      if (stored) {
+        setAvatarUrl(stored);
+      }
+    } catch {
+    }
+  }, [user]);
+
 
   const handleResetPortfolio = async () => {
     if (!user) return;
@@ -142,6 +153,9 @@ const Profile = () => {
   const handleUpdateAvatar = async () => {
     if (!user || !avatarUrl.trim()) return;
     try {
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(`finori_avatar_url_${user.id}`, avatarUrl.trim());
+      }
       setProfileData((prev) =>
         prev ? { ...prev, avatar_url: avatarUrl } : prev
       );
@@ -204,9 +218,10 @@ const Profile = () => {
     try {
       await navigator.clipboard.writeText(referralLink);
       setCopied(true);
+      grantReferralReward();
       toast({
         title: "Link Copied!",
-        description: "Share this link with friends to earn 17,500 USDT when they sign up!"
+        description: "Your referral link is copied and you received a 17,500 USDT bonus."
       });
       setTimeout(() => setCopied(false), 2000);
     } catch (error) {
