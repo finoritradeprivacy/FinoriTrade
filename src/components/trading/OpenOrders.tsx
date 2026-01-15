@@ -2,14 +2,14 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useSimTrade } from "@/contexts/SimTradeContext";
+import { useSimTrade, Order } from "@/contexts/SimTradeContext";
 import { X } from "lucide-react";
 import { toast } from "sonner";
 
 const OpenOrders = ({ refreshTrigger }: { refreshTrigger: number }) => {
   const { user } = useAuth();
   const { orders, cancelOrder } = useSimTrade();
-  const [visibleOrders, setVisibleOrders] = useState<any[]>([]);
+  const [visibleOrders, setVisibleOrders] = useState<Order[]>([]);
 
   useEffect(() => {
     setVisibleOrders(orders.filter(o => o.status !== "cancelled"));
@@ -30,7 +30,7 @@ const OpenOrders = ({ refreshTrigger }: { refreshTrigger: number }) => {
         </div>
       ) : (
         <div className="space-y-2">
-          {visibleOrders.map((order: any) => (
+          {visibleOrders.map((order: Order) => (
             <div
               key={order.id}
               className="p-3 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"

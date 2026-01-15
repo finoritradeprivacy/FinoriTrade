@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 type Side = "buy" | "sell";
 type OrderType = "market" | "limit" | "stop";
 
-interface Order {
+export interface Order {
   id: string;
   symbol: string;
   side: Side;
@@ -16,7 +16,7 @@ interface Order {
   filledAt?: number;
 }
 
-interface Trade {
+export interface Trade {
   id: string;
   symbol: string;
   side: Side;
@@ -29,6 +29,15 @@ interface Trade {
 interface Holding {
   quantity: number;
   averageBuyPrice: number;
+}
+
+export interface Asset {
+  id: string;
+  symbol: string;
+  name: string;
+  current_price: number;
+  price_change_24h?: number | null;
+  [key: string]: unknown;
 }
 
 interface SimTradeState {

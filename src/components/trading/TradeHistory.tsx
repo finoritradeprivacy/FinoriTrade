@@ -1,13 +1,13 @@
 import { Card } from "@/components/ui/card";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useSimTrade } from "@/contexts/SimTradeContext";
+import { useSimTrade, Trade } from "@/contexts/SimTradeContext";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
 const TradeHistory = ({ refreshTrigger }: { refreshTrigger: number }) => {
   const { user } = useAuth();
   const { trades } = useSimTrade();
-  const [visibleTrades, setVisibleTrades] = useState<any[]>([]);
+  const [visibleTrades, setVisibleTrades] = useState<Trade[]>([]);
   const [isExpanded, setIsExpanded] = useState(false);
 
   useEffect(() => {
@@ -41,7 +41,7 @@ const TradeHistory = ({ refreshTrigger }: { refreshTrigger: number }) => {
         </div>
       ) : (
         <div className="space-y-2">
-          {displayedTrades.map((trade: any) => (
+          {displayedTrades.map((trade: Trade) => (
             <div
               key={trade.id}
               className="p-3 bg-secondary rounded-lg hover:bg-secondary/80 transition-colors"
@@ -59,7 +59,7 @@ const TradeHistory = ({ refreshTrigger }: { refreshTrigger: number }) => {
                     </span>
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">
-                    {new Date(trade.createdAt || trade.created_at || Date.now()).toLocaleString()}
+                    {new Date(trade.createdAt || Date.now()).toLocaleString()}
                   </p>
                 </div>
               </div>

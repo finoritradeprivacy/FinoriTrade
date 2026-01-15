@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { createChart, IChartApi, ISeriesApi, CandlestickData, Time, UTCTimestamp, CandlestickSeries, LineSeries, createSeriesMarkers, IPriceLine } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, CandlestickData, Time, UTCTimestamp, CandlestickSeries, LineSeries, createSeriesMarkers, IPriceLine, MouseEventParams, SeriesMarker } from 'lightweight-charts';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useSimTrade } from '@/contexts/SimTradeContext';
@@ -14,7 +14,7 @@ interface Asset {
   current_price: number;
   price_change_24h?: number | null;
   updated_at?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 interface TradingChartProps {
@@ -43,6 +43,52 @@ interface Drawing {
   text?: string;
 }
 
+const getTimeframeSeconds = (tf: Timeframe): number => {
+  switch (tf) {
+    case '1s': return 1;
+    case '1m': return 60;
+    case '5m': return 300;
+    case '15m': return 900;
+    case '1h': return 3600;
+    case '4h': return 14400;
+    case '1d': return 86400;
+    case '1w': return 604800;
+    default: return 60;
+  }
+};
+
+const getCandleLimits = (tf: Timeframe): [number, number] => {
+  switch (tf) {
+    case '1s': return [2000, 2000];
+    case '1m': return [2000, 2000];
+    case '15m': return [1000, 1750];
+    case '5m': return [1000, 1750];
+    case '1h': return [500, 1500];
+    case '4h': return [300, 500];
+    case '1d': return [100, 400];
+    case '1w': return [15, 60];
+    default: return [100, 500];
+  }
+};
+
+const getTableForTimeframe = (tf: Timeframe): string => {
+  switch (tf) {
+    case '1s':
+    case '1m':
+    case '5m':
+    case '15m':
+      return 'price_history';
+    case '1h':
+    case '4h':
+      return 'price_history_hourly';
+    case '1d':
+    case '1w':
+      return 'price_history_daily';
+    default:
+      return 'price_history';
+  }
+};
+
 export const TradingChart = ({
   asset
 }: TradingChartProps) => {
@@ -52,7 +98,7 @@ export const TradingChart = ({
   // Keep references to overlay elements so we can cleanly re-render drawings
   const priceLinesRef = useRef<IPriceLine[]>([]);
   const trendlineSeriesRef = useRef<Map<string, ISeriesApi<'Line'>>>(new Map());
-  const markersRef = useRef<any>(null);
+  const markersRef = useRef<SeriesMarker<Time>[] | null>(null);
   const [timeframe, setTimeframe] = useState<Timeframe>('1s');
   const [timeframeCooldown, setTimeframeCooldown] = useState(0);
   const lastTimeframeChangeRef = useRef<number>(0);
@@ -180,81 +226,8 @@ export const TradingChart = ({
     };
   }, []);
 
-  // Aggregate 1m candles into larger timeframes
-  const aggregateCandles = (data: Array<{
-    time: number;
-    open: number;
-    high: number;
-    low: number;
-    close: number;
-  }>, timeframeSeconds: number): CandlestickData[] => {
-    if (timeframeSeconds === 60) {
-      // No aggregation needed for 1m
-      return data.map(d => ({
-        time: d.time as UTCTimestamp,
-        open: d.open,
-        high: d.high,
-        low: d.low,
-        close: d.close
-      }));
-    }
-    const aggregated: Map<number, CandlestickData> = new Map();
-    for (const candle of data) {
-      const bucketTime = Math.floor(candle.time / timeframeSeconds) * timeframeSeconds;
-      const existing = aggregated.get(bucketTime);
-      if (existing) {
-        existing.high = Math.max(existing.high, candle.high);
-        existing.low = Math.min(existing.low, candle.low);
-        existing.close = candle.close; // Last candle's close becomes the aggregated close
-      } else {
-        aggregated.set(bucketTime, {
-          time: bucketTime as UTCTimestamp,
-          open: candle.open,
-          high: candle.high,
-          low: candle.low,
-          close: candle.close
-        });
-      }
-    }
-    return Array.from(aggregated.values()).sort((a, b) => (a.time as number) - (b.time as number));
-  };
-
-  // Define candle limits per timeframe: [min, max]
-  const getCandleLimits = (tf: Timeframe): [number, number] => {
-    switch (tf) {
-      case '1s': return [2000, 2000];
-      case '1m': return [2000, 2000];
-      case '15m': return [1000, 1750];
-      case '5m': return [1000, 1750];
-      case '1h': return [500, 1500];
-      case '4h': return [300, 500];
-      case '1d': return [100, 400];
-      case '1w': return [15, 60];
-      default: return [100, 500];
-    }
-  };
-
-  // Determine which table to use for each timeframe
-  const getTableForTimeframe = (tf: Timeframe): string => {
-    switch (tf) {
-      case '1s':
-      case '1m':
-      case '5m':
-      case '15m':
-        return 'price_history'; // Use 1m candles and aggregate
-      case '1h':
-      case '4h':
-        return 'price_history_hourly'; // Use hourly candles
-      case '1d':
-      case '1w':
-        return 'price_history_daily'; // Use daily candles
-      default:
-        return 'price_history';
-    }
-  };
-
   // Generate historical candlestick data
-  const generateHistoricalData = async () => {
+  const generateHistoricalData = useCallback(async () => {
     if (!candlestickSeriesRef.current || !asset) return;
     setIsLoadingData(true);
     const timeframeSeconds = getTimeframeSeconds(timeframe);
@@ -296,22 +269,7 @@ export const TradingChart = ({
     candlestickSeriesRef.current.setData(chartData);
     setLastCandle(chartData[chartData.length - 1] || null);
     setIsLoadingData(false);
-  };
-
-  // Get timeframe in seconds
-  const getTimeframeSeconds = (tf: Timeframe): number => {
-    const map: Record<Timeframe, number> = {
-      '1s': 1,
-      '1m': 60,
-      '5m': 300,
-      '15m': 900,
-      '1h': 3600,
-      '4h': 14400,
-      '1d': 86400,
-      '1w': 604800
-    };
-    return map[tf];
-  };
+  }, [asset, timeframe]);
 
   // Handle timeframe change with cooldown
   const handleTimeframeChange = (newTimeframe: Timeframe) => {
@@ -330,6 +288,7 @@ export const TradingChart = ({
 
     // Simulated tick interval
     const interval = setInterval(() => {
+        const lastCandle = lastCandleRef.current;
         if (!lastCandle) return;
 
         const now = Math.floor(Date.now() / 1000);
@@ -350,7 +309,7 @@ export const TradingChart = ({
                 low: Math.min(lastCandle.low, newPrice),
                 close: newPrice
             };
-            candlestickSeriesRef.current.update(updatedCandle);
+            candlestickSeriesRef.current?.update(updatedCandle);
             setLastCandle(updatedCandle);
         } else {
             // New candle
@@ -361,14 +320,14 @@ export const TradingChart = ({
                 low: newPrice,
                 close: newPrice
             };
-            candlestickSeriesRef.current.update(newCandle);
+            candlestickSeriesRef.current?.update(newCandle);
             setLastCandle(newCandle);
         }
 
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [asset, timeframe, lastCandle]);
+  }, [asset, timeframe]);
 
 
   // Load trades for current asset
@@ -390,7 +349,7 @@ export const TradingChart = ({
       if (!unique.has(tr.id)) unique.set(tr.id, tr);
     });
     setTrades(Array.from(unique.values()));
-  }, [asset?.id, ctxTrades]);
+  }, [asset, ctxTrades]);
 
   // Note: Trade markers are now rendered together with drawings in the render drawings effect
 
@@ -412,7 +371,7 @@ export const TradingChart = ({
   // Handle chart click for drawing tools
   useEffect(() => {
     if (!chartRef.current || drawingTool === 'none') return;
-    const handleClick = (param: any) => {
+    const handleClick = (param: MouseEventParams) => {
       if (!param.point || !param.time) return;
       const price = candlestickSeriesRef.current?.coordinateToPrice(param.point.y);
       if (!price) return;
@@ -487,7 +446,9 @@ export const TradingChart = ({
         priceLinesRef.current.forEach(line => {
           try {
             series.removePriceLine(line);
-          } catch {}
+          } catch {
+            // ignore
+          }
         });
       } finally {
         priceLinesRef.current = [];
@@ -497,13 +458,15 @@ export const TradingChart = ({
       trendlineSeriesRef.current.forEach(s => {
         try {
           chart.removeSeries(s);
-        } catch {}
+        } catch {
+          // ignore
+        }
       });
       trendlineSeriesRef.current.clear();
     }
 
     // Build new overlays from current drawings
-    const markers: any[] = [];
+    const markers: SeriesMarker<Time>[] = [];
     drawings.forEach(drawing => {
       if (drawing.type === 'horizontal') {
         const line = series.createPriceLine({
@@ -564,14 +527,14 @@ export const TradingChart = ({
         trendlineSeriesRef.current.set(drawing.id, tl);
         markers.push({
           time: drawing.points[0].time as UTCTimestamp,
-          position: 'inBar' as 'inBar',
+          position: 'inBar' as const,
           color,
-          shape: 'circle' as 'circle',
+          shape: 'circle' as const,
           text: 'Start'
         });
         markers.push({
           time: drawing.points[1].time as UTCTimestamp,
-          position: 'inBar' as 'inBar',
+          position: 'inBar' as const,
           color,
           shape: (isRising ? 'arrowUp' : 'arrowDown') as 'arrowUp' | 'arrowDown',
           text: isRising ? 'Up Trend' : 'Down Trend'
@@ -580,9 +543,9 @@ export const TradingChart = ({
         // Use marker to render text note
         markers.push({
           time: drawing.points[0].time as UTCTimestamp,
-          position: 'aboveBar' as 'aboveBar',
+          position: 'aboveBar' as const,
           color: '#FCD535',
-          shape: 'square' as 'square',
+          shape: 'square' as const,
           text: drawing.text || 'Note'
         });
       }

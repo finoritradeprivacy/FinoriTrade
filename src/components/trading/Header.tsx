@@ -22,7 +22,7 @@ const Header = () => {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   const nickname =
-    (user?.user_metadata as any)?.nickname ||
+    (user?.user_metadata as Record<string, unknown>)?.nickname ||
     (user?.email ? String(user.email).split("@")[0] : "User");
 
   return (

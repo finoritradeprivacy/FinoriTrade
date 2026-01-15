@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/contexts/AuthContext";
-import { useSimTrade } from "@/contexts/SimTradeContext";
+import { useSimTrade, Asset } from "@/contexts/SimTradeContext";
 import { toast } from "sonner";
 import { z } from "zod";
 import { AlertTriangle, Mail } from "lucide-react";
@@ -29,7 +29,7 @@ const orderSchema = z.object({
 });
 
 interface OrderFormProps {
-  asset: any;
+  asset: Asset;
   onTradeSuccess: () => void;
 }
 
@@ -150,8 +150,8 @@ const OrderForm = ({ asset, onTradeSuccess }: OrderFormProps) => {
       setQuantity("");
       setPrice("");
       setStopPrice("");
-    } catch (error: any) {
-      toast.error(error.message || "Failed to place order");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to place order");
     } finally {
       setLoading(false);
     }

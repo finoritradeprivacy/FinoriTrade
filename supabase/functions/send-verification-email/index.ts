@@ -36,7 +36,13 @@ serve(async (req: Request): Promise<Response> => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const body = await req.json();
+    const body = await req.json() as {
+      action?: string;
+      email?: string;
+      nickname?: string;
+      password?: string;
+      code?: string;
+    };
     const action = body.action || "send";
 
     console.log(`Processing action: ${action}`, JSON.stringify(body));
@@ -366,9 +372,9 @@ serve(async (req: Request): Promise<Response> => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error in send-verification-email function:", error);
-    return new Response(JSON.stringify({ error: error.message }), {
+    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

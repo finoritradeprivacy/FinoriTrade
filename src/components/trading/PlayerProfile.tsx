@@ -12,7 +12,7 @@ interface PlayerData {
   email: string;
   level: number;
   total_xp: number;
-  achievements: any[];
+  achievements: unknown[];
   total_trades: number;
   win_rate: number;
   total_profit_loss: number;
@@ -31,7 +31,7 @@ const PlayerProfile = () => {
 
       try {
         const nickname =
-          (user.user_metadata as any)?.nickname ||
+          (user.user_metadata as Record<string, unknown>)?.nickname ||
           (user.email ? String(user.email).split("@")[0] : "Trader");
         const email = user.email || "";
         const baseBalance = 100000;
@@ -174,11 +174,14 @@ const PlayerProfile = () => {
             <span>Achievements</span>
           </div>
           <div className="flex flex-wrap gap-1">
-            {playerData.achievements.slice(0, 6).map((achievement: any, index: number) => (
-              <Badge key={index} variant="outline" className="text-xs">
-                {achievement.name || `Achievement ${index + 1}`}
-              </Badge>
-            ))}
+            {playerData.achievements.slice(0, 6).map((achievement: unknown, index: number) => {
+              const ach = achievement as Record<string, unknown>;
+              return (
+                <Badge key={index} variant="outline" className="text-xs">
+                  {String(ach.name) || `Achievement ${index + 1}`}
+                </Badge>
+              );
+            })}
           </div>
         </div>
       )}

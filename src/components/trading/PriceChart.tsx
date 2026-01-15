@@ -1,13 +1,13 @@
 import { Card } from "@/components/ui/card";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { useEffect, useState } from "react";
+import { Asset } from "@/contexts/SimTradeContext";
 
 interface PriceChartProps {
   asset: any;
 }
 
 const PriceChart = ({ asset }: PriceChartProps) => {
-  const [chartData, setChartData] = useState<any[]>([]);
+  const [chartData, setChartData] = useState<{ time: string; price: number }[]>([]);
 
   useEffect(() => {
     if (!asset) return;

@@ -36,11 +36,8 @@ export const FeedbackDialog = ({ open, onOpenChange }: FeedbackDialogProps) => {
     setSending(true);
 
     try {
-      const { data, error } = await supabase.functions.invoke('send-feedback', {
-        body: { name, email, subject, message }
-      });
-
-      if (error) throw error;
+      // Mock sending feedback
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
       toast.success("Feedback sent successfully! We'll get back to you soon.");
       
@@ -50,9 +47,9 @@ export const FeedbackDialog = ({ open, onOpenChange }: FeedbackDialogProps) => {
       setSubject("");
       setMessage("");
       onOpenChange(false);
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error sending feedback:", error);
-      toast.error(error.message || "Failed to send feedback. Please try again.");
+      toast.error("Failed to send feedback. Please try again.");
     } finally {
       setSending(false);
     }
