@@ -112,8 +112,8 @@ const Trade = () => {
     <div className="min-h-screen bg-background">
       <Header />
       
-      <div className="container mx-auto p-4 space-y-4">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
+      <div className="container mx-auto px-3 py-4 sm:px-4 space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <AssetSelector
             assets={assets}
             selectedAsset={selectedAsset}
@@ -124,7 +124,7 @@ const Trade = () => {
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
           <div className="lg:col-span-9 space-y-4">
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-3 sm:gap-4">
               <div className="xl:col-span-2">
                 <TradingChart asset={selectedAsset} />
               </div>
@@ -133,13 +133,13 @@ const Trade = () => {
               </div>
             </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
               <OpenOrders refreshTrigger={refreshTrigger} />
               <TradeHistory refreshTrigger={refreshTrigger} />
             </div>
           </div>
 
-          <div className="lg:col-span-3 space-y-4">
+          <div className="lg:col-span-3 space-y-3 sm:space-y-4">
             <PlayerProfile />
             <PriceAlerts assets={assets} selectedAsset={selectedAsset} />
             <OrderForm asset={selectedAsset} onTradeSuccess={handleTradeSuccess} />

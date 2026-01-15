@@ -624,16 +624,17 @@ export const TradingChart = ({
   const timeframes: Timeframe[] = ['1s', '1m', '5m', '15m', '1h', '4h', '1d', '1w'];
   return <Card className="p-0 bg-[#0B0E11] border-[#2A2E39]">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-[#2A2E39]">
-        <div className="flex items-center gap-2">
-          <h3 className="text-lg font-semibold text-[#EAECEF]">{asset?.symbol || 'BTC'}/USDT</h3>
-          <span className="text-2xl font-bold text-[#EAECEF]">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between p-4 border-b border-[#2A2E39]">
+        <div className="flex flex-wrap items-baseline gap-1.5 sm:gap-2">
+          <h3 className="text-base sm:text-lg font-semibold text-[#EAECEF]">
+            {asset?.symbol || 'BTC'}/USDT
+          </h3>
+          <span className="text-xl sm:text-2xl font-bold text-[#EAECEF]">
             ${asset?.current_price?.toFixed(2)}
           </span>
-          <span className={`text-sm font-medium ${asset?.price_change_24h >= 0 ? 'text-[#0ECB81]' : 'text-[#F6465D]'}`}>
+          <span className={`text-xs sm:text-sm font-medium ${asset?.price_change_24h >= 0 ? 'text-[#0ECB81]' : 'text-[#F6465D]'}`}>
             {asset?.price_change_24h >= 0 ? '+' : ''}{((asset?.price_change_24h || 0) * 100).toFixed(2)}%
           </span>
-          
         </div>
       </div>
 

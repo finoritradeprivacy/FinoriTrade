@@ -241,19 +241,22 @@ const Profile = () => {
   const calculateXpForNextLevel = () => {
     if (!profileData) return { current: 0, needed: 1000, percentage: 0 };
 
-    // Calculate total XP needed for current level
-    let totalForCurrentLevel = 0;
-    for (let i = 1; i <= profileData.level; i++) {
-      totalForCurrentLevel += i * 500 + 500;
-    }
+    const calculateXpForLevel = (level: number): number => {
+      if (level <= 1) return 0;
+      let total = 0;
+      for (let i = 1; i < level; i++) {
+        total += 1000 + (i - 1) * 500;
+      }
+      return total;
+    };
 
-    // Calculate XP needed for next level
-    const xpForNextLevel = (profileData.level + 1) * 500 + 500;
-    const currentLevelXp = profileData.total_xp - totalForCurrentLevel;
-    const percentage = (currentLevelXp / xpForNextLevel) * 100;
+    const xpForCurrentLevel = calculateXpForLevel(profileData.level);
+    const xpForNextLevel = 1000 + (profileData.level - 1) * 500;
+    const xpInCurrentLevel = profileData.total_xp - xpForCurrentLevel;
+    const percentage = (xpInCurrentLevel / xpForNextLevel) * 100;
 
     return {
-      current: Math.max(0, currentLevelXp),
+      current: Math.max(0, xpInCurrentLevel),
       needed: xpForNextLevel,
       percentage: Math.max(0, Math.min(100, percentage))
     };
