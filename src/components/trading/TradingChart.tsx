@@ -59,7 +59,24 @@ const getTimeframeSeconds = (tf: Timeframe): number => {
   }
 };
 
-// Deterministic random number generator
+const getPriceFormatForPrice = (price: number) => {
+  let precision = 2;
+  let minMove = 0.01;
+  if (price < 1000) {
+    if (price >= 1) {
+      precision = 4;
+      minMove = 0.0001;
+    } else if (price >= 0.01) {
+      precision = 6;
+      minMove = 0.000001;
+    } else {
+      precision = 8;
+      minMove = 0.00000001;
+    }
+  }
+  return { precision, minMove };
+};
+
 const seededRandom = (seed: number) => {
   const m = 0x80000000;
   const a = 1103515245;
@@ -72,7 +89,7 @@ const seededRandom = (seed: number) => {
 };
 
 const getCandleLimits = (timeframe: Timeframe): [number, number] => {
-  switch (tf) {
+  switch (timeframe) {
     case '1s': return [2000, 2000];
     case '1m': return [2000, 2000];
     case '15m': return [1000, 1750];
@@ -83,6 +100,31 @@ const getCandleLimits = (timeframe: Timeframe): [number, number] => {
     case '1w': return [15, 60];
     default: return [100, 500];
   }
+};
+
+const normalizeCandleBody = (candle: CandlestickData, price: number): CandlestickData => {
+  const open = Number(candle.open);
+  const close = Number(candle.close);
+  if (!Number.isFinite(open) || !Number.isFinite(close)) return candle;
+  const { minMove } = getPriceFormatForPrice(price);
+  const pctThreshold = price > 0 ? price * 0.0002 : 0;
+  const bodyThreshold = Math.max(minMove, pctThreshold);
+  const diff = Math.abs(close - open);
+  if (bodyThreshold === 0 || diff >= bodyThreshold) return candle;
+  const direction = price >= open ? 1 : -1;
+  const adjustedClose = open + direction * bodyThreshold;
+  let high = Number(candle.high);
+  let low = Number(candle.low);
+  if (!Number.isFinite(high)) high = Math.max(open, adjustedClose);
+  if (!Number.isFinite(low)) low = Math.min(open, adjustedClose);
+  high = Math.max(high, open, adjustedClose);
+  low = Math.min(low, open, adjustedClose);
+  return {
+    ...candle,
+    close: adjustedClose,
+    high,
+    low,
+  };
 };
 
 const getTableForTimeframe = (tf: Timeframe): string => {
@@ -251,22 +293,7 @@ export const TradingChart = ({
     if (!candlestickSeriesRef.current || !asset?.current_price) return;
 
     const price = asset.current_price;
-    let precision = 2;
-    let minMove = 0.01;
-
-    if (price >= 1000) {
-      precision = 2;
-      minMove = 0.01;
-    } else if (price >= 1) {
-      precision = 4;
-      minMove = 0.0001;
-    } else if (price >= 0.01) {
-      precision = 6;
-      minMove = 0.000001;
-    } else {
-      precision = 8;
-      minMove = 0.00000001;
-    }
+    const { precision, minMove } = getPriceFormatForPrice(price);
 
     candlestickSeriesRef.current.applyOptions({
       priceFormat: {
@@ -404,7 +431,6 @@ export const TradingChart = ({
           low: currentPrice,
           close: currentPrice
         };
-        candlestickSeriesRef.current?.update(next);
       } else {
         next = {
           time: bucketTime,
@@ -413,8 +439,9 @@ export const TradingChart = ({
           low: Math.min(prev.low, currentPrice),
           close: currentPrice
         };
-        candlestickSeriesRef.current?.update(next);
       }
+      next = normalizeCandleBody(next, currentPrice);
+      candlestickSeriesRef.current?.update(next);
       return next;
     });
   }, [asset?.id, asset?.current_price, timeframe]);

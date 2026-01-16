@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 
-// Helper functions duplicated from TradingChart.tsx for testing logic
 const getTimeframeSeconds = (tf: string): number => {
   switch (tf) {
     case '1s': return 1;
@@ -13,6 +12,49 @@ const getTimeframeSeconds = (tf: string): number => {
     case '1w': return 604800;
     default: return 60;
   }
+};
+
+const getPriceFormatForPrice = (price: number) => {
+  let precision = 2;
+  let minMove = 0.01;
+  if (price < 1000) {
+    if (price >= 1) {
+      precision = 4;
+      minMove = 0.0001;
+    } else if (price >= 0.01) {
+      precision = 6;
+      minMove = 0.000001;
+    } else {
+      precision = 8;
+      minMove = 0.00000001;
+    }
+  }
+  return { precision, minMove };
+};
+
+const normalizeCandleBody = (candle: { open: number; high: number; low: number; close: number }, price: number) => {
+  const open = Number(candle.open);
+  const close = Number(candle.close);
+  if (!Number.isFinite(open) || !Number.isFinite(close)) return candle;
+  const { minMove } = getPriceFormatForPrice(price);
+  const pctThreshold = price > 0 ? price * 0.0002 : 0;
+  const bodyThreshold = Math.max(minMove, pctThreshold);
+  const diff = Math.abs(close - open);
+  if (bodyThreshold === 0 || diff >= bodyThreshold) return candle;
+  const direction = price >= open ? 1 : -1;
+  const adjustedClose = open + direction * bodyThreshold;
+  let high = Number(candle.high);
+  let low = Number(candle.low);
+  if (!Number.isFinite(high)) high = Math.max(open, adjustedClose);
+  if (!Number.isFinite(low)) low = Math.min(open, adjustedClose);
+  high = Math.max(high, open, adjustedClose);
+  low = Math.min(low, open, adjustedClose);
+  return {
+    ...candle,
+    close: adjustedClose,
+    high,
+    low,
+  };
 };
 
 describe('Chart Logic', () => {
@@ -60,6 +102,24 @@ describe('Chart Logic', () => {
 
       expect(high).toBeGreaterThanOrEqual(Math.max(open, close));
       expect(low).toBeLessThanOrEqual(Math.min(open, close));
+    });
+  });
+
+  describe('Minimal candle body', () => {
+    it('ensures tiny price moves still produce a visible body', () => {
+      const price = 50000;
+      const candle = {
+        open: 50000,
+        high: 50000,
+        low: 50000,
+        close: 50000,
+      };
+      const adjusted = normalizeCandleBody(candle, price);
+      const diff = Math.abs(adjusted.close - adjusted.open);
+      const { minMove } = getPriceFormatForPrice(price);
+      const pctThreshold = price * 0.0002;
+      const bodyThreshold = Math.max(minMove, pctThreshold);
+      expect(diff).toBeGreaterThanOrEqual(bodyThreshold);
     });
   });
 });
