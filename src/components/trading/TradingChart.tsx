@@ -228,6 +228,44 @@ export const TradingChart = ({
     };
   }, []);
 
+  // Update chart precision based on asset price
+  useEffect(() => {
+    if (!candlestickSeriesRef.current || !asset?.current_price) return;
+
+    const price = asset.current_price;
+    let precision = 2;
+    let minMove = 0.01;
+
+    if (price >= 1000) {
+      precision = 2;
+      minMove = 0.01;
+    } else if (price >= 1) {
+      precision = 4;
+      minMove = 0.0001;
+    } else if (price >= 0.01) {
+      precision = 6;
+      minMove = 0.000001;
+    } else {
+      precision = 8;
+      minMove = 0.00000001;
+    }
+
+    candlestickSeriesRef.current.applyOptions({
+      priceFormat: {
+        type: 'price',
+        precision,
+        minMove,
+      },
+    });
+    
+    // Also update right scale to ensure it matches
+    chartRef.current?.priceScale('right').applyOptions({
+      autoScale: true,
+      minimumWidth: 60,
+    });
+
+  }, [asset?.id, asset?.current_price]);
+
   // Generate historical candlestick data
   const generateHistoricalData = useCallback(async (targetAsset: Asset, targetTimeframe: Timeframe) => {
     if (!candlestickSeriesRef.current || !targetAsset) return;
@@ -252,9 +290,18 @@ export const TradingChart = ({
     const baseVolatility = 0.002; 
     const timeScaler = Math.sqrt(timeframeSeconds / 60);
     const volatility = currentClose * baseVolatility * timeScaler;
+    
+    // Minimum move size to avoid flat candles on low volatility
+    const minMoveSize = currentClose * 0.00005; // 0.005% minimum move
 
     for (let i = 0; i < maxCandles; i++) {
-      const move = (Math.random() - 0.5) * volatility;
+      let move = (Math.random() - 0.5) * volatility;
+      
+      // Ensure minimum movement if volatility is very low
+      if (Math.abs(move) < minMoveSize) {
+        move = Math.sign(move || 1) * minMoveSize;
+      }
+
       const close = currentClose;
       const open = close - move;
       const high = Math.max(open, close) + Math.random() * volatility * 0.5;
