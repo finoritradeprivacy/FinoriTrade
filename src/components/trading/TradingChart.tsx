@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { useSimTrade } from '@/contexts/SimTradeContext';
 import { TrendingUp, TrendingDown, Minus, Square, Type, RotateCcw, Trash2, Activity, BarChart3 } from 'lucide-react';
 import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
+import type { Database } from '@/integrations/supabase/types';
 
 interface Asset {
   id: string;
@@ -88,6 +90,10 @@ const getTableForTimeframe = (tf: Timeframe): string => {
       return 'price_history';
   }
 };
+
+type PriceHistoryRow = Database['public']['Tables']['price_history']['Row'];
+type PriceHistoryHourlyRow = Database['public']['Tables']['price_history_hourly']['Row'];
+type PriceHistoryDailyRow = Database['public']['Tables']['price_history_daily']['Row'];
 
 export const TradingChart = ({
   asset
@@ -266,71 +272,84 @@ export const TradingChart = ({
 
   }, [asset?.id, asset?.current_price]);
 
-  // Generate historical candlestick data
   const generateHistoricalData = useCallback(async (targetAsset: Asset, targetTimeframe: Timeframe) => {
     if (!candlestickSeriesRef.current || !targetAsset) return;
-    if (!targetAsset.current_price || targetAsset.current_price <= 0) {
-      setIsLoadingData(true);
-      return;
-    }
     setIsLoadingData(true);
-    const timeframeSeconds = getTimeframeSeconds(targetTimeframe);
-    const now = Math.floor(Date.now() / 1000);
-    const bucketTime = Math.floor(now / timeframeSeconds) * timeframeSeconds;
-    const [minCandles, maxCandles] = getCandleLimits(targetTimeframe);
-    
-    // Mock data generation BACKWARDS from current price
-    // This ensures the chart connects perfectly to the current real-time price
-    const chartData: CandlestickData[] = [];
-    let currentClose = targetAsset.current_price;
-    let currentTime = bucketTime;
+    try {
+      const [_, maxCandles] = getCandleLimits(targetTimeframe);
+      const tableName = getTableForTimeframe(targetTimeframe);
 
-    // Adjust volatility based on timeframe (scaling with square root of time)
-    // Base volatility: 0.2% per minute (increased from 0.1% to prevent flat candles)
-    const baseVolatility = 0.002; 
-    const timeScaler = Math.sqrt(timeframeSeconds / 60);
-    const volatility = currentClose * baseVolatility * timeScaler;
-    
-    // Minimum move size to avoid flat candles on low volatility
-    const minMoveSize = currentClose * 0.00005; // 0.005% minimum move
+      let rows: PriceHistoryRow[] | PriceHistoryHourlyRow[] | PriceHistoryDailyRow[] | null = null;
 
-    for (let i = 0; i < maxCandles; i++) {
-      let move = (Math.random() - 0.5) * volatility;
-      
-      // Ensure minimum movement if volatility is very low
-      if (Math.abs(move) < minMoveSize) {
-        move = Math.sign(move || 1) * minMoveSize;
+      if (tableName === 'price_history') {
+        const { data, error } = await supabase
+          .from<PriceHistoryRow>('price_history')
+          .select('time,open,high,low,close')
+          .eq('asset_id', targetAsset.id)
+          .order('time', { ascending: false })
+          .limit(maxCandles);
+        if (error) {
+          console.error('Error loading price_history:', error);
+          rows = null;
+        } else {
+          rows = data ?? [];
+        }
+      } else if (tableName === 'price_history_hourly') {
+        const { data, error } = await supabase
+          .from<PriceHistoryHourlyRow>('price_history_hourly')
+          .select('time,open,high,low,close')
+          .eq('asset_id', targetAsset.id)
+          .order('time', { ascending: false })
+          .limit(maxCandles);
+        if (error) {
+          console.error('Error loading price_history_hourly:', error);
+          rows = null;
+        } else {
+          rows = data ?? [];
+        }
+      } else {
+        const { data, error } = await supabase
+          .from<PriceHistoryDailyRow>('price_history_daily')
+          .select('time,open,high,low,close')
+          .eq('asset_id', targetAsset.id)
+          .order('time', { ascending: false })
+          .limit(maxCandles);
+        if (error) {
+          console.error('Error loading price_history_daily:', error);
+          rows = null;
+        } else {
+          rows = data ?? [];
+        }
       }
 
-      const close = currentClose;
-      const open = close - move;
-      const high = Math.max(open, close) + Math.random() * volatility * 0.5;
-      const low = Math.min(open, close) - Math.random() * volatility * 0.5;
+      if (!rows || rows.length === 0) {
+        candlestickSeriesRef.current.setData([]);
+        setLastCandle(null);
+        setIsLoadingData(false);
+        return;
+      }
 
-      chartData.push({
-        time: currentTime as UTCTimestamp,
-        open,
-        high,
-        low,
-        close
-      });
+      const chartData: CandlestickData[] = rows
+        .slice()
+        .reverse()
+        .map((row) => ({
+          time: Number(row.time) as UTCTimestamp,
+          open: Number(row.open),
+          high: Number(row.high),
+          low: Number(row.low),
+          close: Number(row.close),
+        }));
 
-      currentClose = open;
-      currentTime -= timeframeSeconds;
+      candlestickSeriesRef.current.setData(chartData);
+      setLastCandle(chartData[chartData.length - 1] || null);
+
+      if (chartRef.current) {
+        chartRef.current.timeScale().fitContent();
+      }
+    } finally {
+      setIsLoadingData(false);
     }
-
-    chartData.reverse();
-
-    candlestickSeriesRef.current.setData(chartData);
-    setLastCandle(chartData[chartData.length - 1] || null);
-    
-    // Fit content to ensure candles are visible
-    if (chartRef.current) {
-      chartRef.current.timeScale().fitContent();
-    }
-    
-    setIsLoadingData(false);
-  }, []); // Dependencies removed to prevent regeneration on asset object change
+  }, []);
 
   // Handle timeframe change with cooldown
   const handleTimeframeChange = (newTimeframe: Timeframe) => {
