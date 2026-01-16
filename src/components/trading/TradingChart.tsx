@@ -59,7 +59,19 @@ const getTimeframeSeconds = (tf: Timeframe): number => {
   }
 };
 
-const getCandleLimits = (tf: Timeframe): [number, number] => {
+// Deterministic random number generator
+const seededRandom = (seed: number) => {
+  const m = 0x80000000;
+  const a = 1103515245;
+  const c = 12345;
+  let state = seed ? seed : Math.floor(Math.random() * (m - 1));
+  return () => {
+    state = (a * state + c) % m;
+    return state / (m - 1);
+  };
+};
+
+const getCandleLimits = (timeframe: Timeframe): [number, number] => {
   switch (tf) {
     case '1s': return [2000, 2000];
     case '1m': return [2000, 2000];
@@ -276,69 +288,65 @@ export const TradingChart = ({
     if (!candlestickSeriesRef.current || !targetAsset) return;
     setIsLoadingData(true);
     try {
-      const [_, maxCandles] = getCandleLimits(targetTimeframe);
-      const tableName = getTableForTimeframe(targetTimeframe);
+      const [minCandles, maxCandles] = getCandleLimits(targetTimeframe);
+      const timeframeSeconds = getTimeframeSeconds(targetTimeframe);
+      const now = Math.floor(Date.now() / 1000);
+      const bucketTime = Math.floor(now / timeframeSeconds) * timeframeSeconds as UTCTimestamp;
+      
+      // Generate deterministic seed from asset ID
+      let seed = 0;
+      for(let i = 0; i < targetAsset.id.length; i++) seed += targetAsset.id.charCodeAt(i);
+      const rng = seededRandom(seed);
 
-      let rows: PriceHistoryRow[] | PriceHistoryHourlyRow[] | PriceHistoryDailyRow[] | null = null;
+      // Mock data generation BACKWARDS from current price
+      // This ensures the chart connects perfectly to the current real-time price
+      const chartData: CandlestickData[] = [];
+      let currentClose = targetAsset.current_price;
+      let currentTime = bucketTime;
 
-      if (tableName === 'price_history') {
-        const { data, error } = await supabase
-          .from<PriceHistoryRow>('price_history')
-          .select('time,open,high,low,close')
-          .eq('asset_id', targetAsset.id)
-          .order('time', { ascending: false })
-          .limit(maxCandles);
-        if (error) {
-          console.error('Error loading price_history:', error);
-          rows = null;
-        } else {
-          rows = data ?? [];
+      // Adjust volatility based on timeframe (scaling with square root of time)
+      // Base volatility: 0.2% per minute (increased from 0.1% to prevent flat candles)
+      const baseVolatility = 0.002; 
+      const timeScaler = Math.sqrt(timeframeSeconds / 60);
+      const volatility = currentClose * baseVolatility * timeScaler;
+      
+      // Minimum move size to avoid flat candles on low volatility
+      const minMoveSize = currentClose * 0.00005; // 0.005% minimum move
+
+      // Trend simulation state
+      let trend = (rng() - 0.5) * volatility * 0.5;
+
+      for (let i = 0; i < maxCandles; i++) {
+        // Update trend occasionally to create waves
+        if (rng() < 0.05) {
+          trend = (rng() - 0.5) * volatility * 0.5;
         }
-      } else if (tableName === 'price_history_hourly') {
-        const { data, error } = await supabase
-          .from<PriceHistoryHourlyRow>('price_history_hourly')
-          .select('time,open,high,low,close')
-          .eq('asset_id', targetAsset.id)
-          .order('time', { ascending: false })
-          .limit(maxCandles);
-        if (error) {
-          console.error('Error loading price_history_hourly:', error);
-          rows = null;
-        } else {
-          rows = data ?? [];
+
+        let move = trend + (rng() - 0.5) * volatility;
+        
+        // Ensure minimum movement if volatility is very low
+        if (Math.abs(move) < minMoveSize) {
+          move = Math.sign(move || 1) * minMoveSize;
         }
-      } else {
-        const { data, error } = await supabase
-          .from<PriceHistoryDailyRow>('price_history_daily')
-          .select('time,open,high,low,close')
-          .eq('asset_id', targetAsset.id)
-          .order('time', { ascending: false })
-          .limit(maxCandles);
-        if (error) {
-          console.error('Error loading price_history_daily:', error);
-          rows = null;
-        } else {
-          rows = data ?? [];
-        }
+
+        const close = currentClose;
+        const open = close - move;
+        const high = Math.max(open, close) + rng() * volatility * 0.5;
+        const low = Math.min(open, close) - rng() * volatility * 0.5;
+
+        chartData.push({
+          time: currentTime as UTCTimestamp,
+          open,
+          high,
+          low,
+          close
+        });
+
+        currentClose = open;
+        currentTime -= timeframeSeconds;
       }
 
-      if (!rows || rows.length === 0) {
-        candlestickSeriesRef.current.setData([]);
-        setLastCandle(null);
-        setIsLoadingData(false);
-        return;
-      }
-
-      const chartData: CandlestickData[] = rows
-        .slice()
-        .reverse()
-        .map((row) => ({
-          time: Number(row.time) as UTCTimestamp,
-          open: Number(row.open),
-          high: Number(row.high),
-          low: Number(row.low),
-          close: Number(row.close),
-        }));
+      chartData.reverse();
 
       candlestickSeriesRef.current.setData(chartData);
       setLastCandle(chartData[chartData.length - 1] || null);

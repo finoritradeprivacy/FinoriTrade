@@ -152,6 +152,9 @@ export function SimTradeProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<SimTradeState>(loadState);
   const [priceFeedPaused, setPriceFeedPausedState] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
+  
+  // Simulation trends for smoother price movement
+  const trendsRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
     saveState(state);
@@ -236,20 +239,51 @@ export function SimTradeProvider({ children }: { children: React.ReactNode }) {
         let hasUpdates = false;
 
         TRACKED_STOCKS.forEach(sym => {
+          // Initialize trend if missing
+          if (trendsRef.current[sym] === undefined) {
+             trendsRef.current[sym] = (Math.random() - 0.5) * 0.001;
+          }
+          
+          // Occasionally change trend (10% chance)
+          if (Math.random() < 0.1) {
+             trendsRef.current[sym] = (Math.random() - 0.5) * 0.0015;
+          }
+
           // Initialize if missing (mock start price) or update existing
           const current = nextPrices[sym] || (100 + Math.random() * 400); // Random start 100-500
-          const changePercent = (Math.random() - 0.5) * 0.002; // 0.2% max move
+          
+          // Combine trend and noise
+          const trend = trendsRef.current[sym];
+          const noise = (Math.random() - 0.5) * 0.001;
+          const changePercent = trend + noise;
+          
           const next = current * (1 + changePercent);
           nextPrices[sym] = next;
           hasUpdates = true;
         });
 
         TRACKED_FOREX.forEach(sym => {
-          const isJPY = sym.includes("JPY") || sym.includes("HUF"); // HUF is also high value, but let's stick to JPY logic for now
+          const isJPY = sym.includes("JPY") || sym.includes("HUF"); 
           const base = isJPY ? 145 : 1.08;
+          
+          // Initialize trend if missing
+          if (trendsRef.current[sym] === undefined) {
+             trendsRef.current[sym] = (Math.random() - 0.5) * 0.0002;
+          }
+          
+          // Occasionally change trend (10% chance)
+          if (Math.random() < 0.1) {
+             trendsRef.current[sym] = (Math.random() - 0.5) * 0.0003;
+          }
+
           // Initialize if missing or update
           const current = nextPrices[sym] || (base + (Math.random() - 0.5) * (base * 0.05));
-          const changePercent = (Math.random() - 0.5) * 0.0005; // 0.05% max move (lower volatility for forex)
+          
+          // Combine trend and noise (lower for forex)
+          const trend = trendsRef.current[sym];
+          const noise = (Math.random() - 0.5) * 0.0001;
+          const changePercent = trend + noise;
+          
           const next = current * (1 + changePercent);
           nextPrices[sym] = next;
           hasUpdates = true;
