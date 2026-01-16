@@ -15,6 +15,7 @@ interface SendVerificationRequest {
 interface VerifyCodeRequest {
   email: string;
   code: string;
+  password: string;
 }
 
 interface ResendCodeRequest {
@@ -24,6 +25,23 @@ interface ResendCodeRequest {
 serve(async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
+  }
+
+  const origin = req.headers.get("origin") || "";
+  const allowedOrigins = [
+    "https://finoritrade.com",
+    "https://www.finoritrade.com",
+    "http://localhost:5173",
+  ];
+
+  if (origin && !allowedOrigins.includes(origin)) {
+    return new Response(
+      JSON.stringify({ error: "Origin not allowed" }),
+      {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
   }
 
   try {
@@ -92,13 +110,12 @@ serve(async (req: Request): Promise<Response> => {
         .delete()
         .eq("email", email);
 
-      // Store pending verification (password stored temporarily for account creation)
       const { error: insertError } = await supabase
         .from("pending_email_verifications")
         .insert({
           email,
           nickname,
-          password_hash: password, // Will be hashed by Supabase Auth when creating user
+          password_hash: "redacted",
           otp_code: otpCode,
         });
 
@@ -185,15 +202,15 @@ serve(async (req: Request): Promise<Response> => {
     } else if (action === "verify") {
       const email = body.email ? body.email.toLowerCase().trim() : null;
       const code = body.code ? body.code.trim() : null;
+      const password = body.password;
 
-      if (!email || !code) {
-        return new Response(JSON.stringify({ error: "Missing email or code" }), {
+      if (!email || !code || !password) {
+        return new Response(JSON.stringify({ error: "Missing email, code or password" }), {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      // Find pending verification
       const { data: pending, error: fetchError } = await supabase
         .from("pending_email_verifications")
         .select("*")
@@ -216,10 +233,9 @@ serve(async (req: Request): Promise<Response> => {
         });
       }
 
-      // Create the actual user account
       const { data: authData, error: authError } = await supabase.auth.admin.createUser({
         email: pending.email,
-        password: pending.password_hash,
+        password,
         email_confirm: true,
         user_metadata: {
           nickname: pending.nickname,

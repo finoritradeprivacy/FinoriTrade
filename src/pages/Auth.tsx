@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/input-otp";
 
 export default function Auth() {
-  const { signIn } = useAuth();
+  const { signIn, resetPassword } = useAuth();
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -50,6 +50,25 @@ export default function Auth() {
       navigate("/trade");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to login";
+      toast.error(message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!loginEmail) {
+      toast.error("Please fill in your email first");
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const { error } = await resetPassword(loginEmail);
+      if (error) throw error;
+      toast.success("Password reset email sent. Check your inbox.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to send reset email";
       toast.error(message);
     } finally {
       setIsLoading(false);
@@ -105,12 +124,13 @@ export default function Auth() {
 
     setIsLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('send-verification-email', {
+      const { data, error } = await supabase.functions.invoke("send-verification-email", {
         body: {
-          action: 'verify',
+          action: "verify",
           email: registerEmail,
-          code: otp
-        }
+          code: otp,
+          password: registerPassword,
+        },
       });
 
       if (error) throw error;
@@ -251,9 +271,15 @@ export default function Auth() {
                   </div>
                 </div>
 
-                <div className="text-right">
-                  <a href="#" className="text-sm text-gray-400 hover:text-white">Forgot password?</a>
-                </div>
+                  <div className="text-right">
+                    <button
+                      type="button"
+                      onClick={handleForgotPassword}
+                      className="text-sm text-gray-400 hover:text-white underline-offset-2 hover:underline"
+                    >
+                      Forgot password?
+                    </button>
+                  </div>
 
                 <Button type="submit" className="w-full bg-purple-600 hover:bg-purple-700 text-white" disabled={isLoading}>
                   {isLoading ? "Signing In..." : "Sign In"}
