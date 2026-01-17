@@ -328,12 +328,10 @@ export const TradingChart = ({
         return;
       }
 
-      const [minCandles, maxCandles] = getCandleLimits(targetTimeframe);
+      const [, maxCandles] = getCandleLimits(targetTimeframe);
       const timeframeSeconds = getTimeframeSeconds(targetTimeframe);
       const now = Math.floor(Date.now() / 1000);
       const lastTime = Math.floor(now / timeframeSeconds) * timeframeSeconds;
-
-      const [, maxCandles] = getCandleLimits(targetTimeframe);
       const chartData: CandlestickData[] = [];
 
       const basePrice = targetAsset.current_price > 0 ? targetAsset.current_price : 100;
