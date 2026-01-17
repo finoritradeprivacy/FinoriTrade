@@ -351,14 +351,24 @@ export const TradingChart = ({
     setIsLoadingData(true);
     try {
       const validateCandle = (c: CandlestickData): CandlestickData | null => {
-        if (!Number.isFinite(c.open) || !Number.isFinite(c.high) ||
-          !Number.isFinite(c.low) || !Number.isFinite(c.close)) return null;
+        const timeNumber = Number((c.time as unknown as number));
+        const openNumber = Number(c.open);
+        const highNumber = Number(c.high);
+        const lowNumber = Number(c.low);
+        const closeNumber = Number(c.close);
+        if (!Number.isFinite(timeNumber) ||
+          !Number.isFinite(openNumber) ||
+          !Number.isFinite(highNumber) ||
+          !Number.isFinite(lowNumber) ||
+          !Number.isFinite(closeNumber)) {
+          return null;
+        }
         return {
-          time: c.time,
-          open: Number(c.open),
-          high: Number(c.high),
-          low: Number(c.low),
-          close: Number(c.close)
+          time: timeNumber as UTCTimestamp,
+          open: openNumber,
+          high: highNumber,
+          low: lowNumber,
+          close: closeNumber
         };
       };
 
