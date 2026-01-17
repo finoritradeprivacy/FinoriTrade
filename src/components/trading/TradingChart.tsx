@@ -45,6 +45,36 @@ interface Drawing {
   text?: string;
 }
 
+const sanitizeDrawings = (raw: unknown): Drawing[] => {
+  if (!Array.isArray(raw)) return [];
+  const validTypes: DrawingTool[] = ['none', 'trendline', 'horizontal', 'rectangle', 'text'];
+  const result: Drawing[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const anyItem = item as any;
+    if (!validTypes.includes(anyItem.type)) continue;
+    if (!Array.isArray(anyItem.points) || anyItem.points.length === 0) continue;
+    const sanitizedPoints = anyItem.points.map((p: any) => {
+      const t = Number(p?.time);
+      const price = Number(p?.price);
+      if (!Number.isFinite(t) || !Number.isFinite(price)) return null;
+      return { time: t, price };
+    }).filter((p: { time: number; price: number } | null): p is { time: number; price: number } => p !== null);
+    if (!sanitizedPoints.length) continue;
+    const id = typeof anyItem.id === 'string' ? anyItem.id : String(Date.now() + Math.random());
+    const drawing: Drawing = {
+      id,
+      type: anyItem.type,
+      points: sanitizedPoints
+    };
+    if (anyItem.type === 'text' && typeof anyItem.text === 'string') {
+      drawing.text = anyItem.text;
+    }
+    result.push(drawing);
+  }
+  return result;
+};
+
 const getTimeframeSeconds = (tf: Timeframe): number => {
   switch (tf) {
     case '1s': return 1;
@@ -637,13 +667,25 @@ export const TradingChart = ({
 
   // Note: Trade markers are now rendered together with drawings in the render drawings effect
 
-  // Load drawings from local storage
   useEffect(() => {
-    const savedDrawings = localStorage.getItem(`drawings_${asset?.id}`);
-    if (savedDrawings) {
-      setDrawings(JSON.parse(savedDrawings));
+    const key = asset?.id ? `drawings_${asset.id}` : '';
+    if (!key) {
+      setDrawings([]);
+      return;
     }
-  }, [asset]);
+    const savedDrawings = localStorage.getItem(key);
+    if (!savedDrawings) {
+      setDrawings([]);
+      return;
+    }
+    try {
+      const parsed = JSON.parse(savedDrawings);
+      const sanitized = sanitizeDrawings(parsed);
+      setDrawings(sanitized);
+    } catch {
+      setDrawings([]);
+    }
+  }, [asset?.id]);
 
   // Save drawings to local storage
   useEffect(() => {
@@ -839,6 +881,9 @@ export const TradingChart = ({
     const seenTradeIds = new Set<string>();
     const tradeMarkers = trades.filter(trade => {
       if (seenTradeIds.has(trade.id)) return false;
+      if (!Number.isFinite(trade.price) || !Number.isFinite(trade.amount) || !Number.isFinite(trade.timestamp)) {
+        return false;
+      }
       seenTradeIds.add(trade.id);
       return true;
     }).map(trade => ({
