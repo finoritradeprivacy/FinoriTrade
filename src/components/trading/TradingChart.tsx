@@ -186,6 +186,7 @@ export const TradingChart = ({
   const lastGenerationPriceRef = useRef<number | null>(null);
   const currentAssetIdRef = useRef<string | null>(null);
   const candleCacheRef = useRef<Record<string, CandlestickData[]>>({});
+  const liveRecentClosesRef = useRef<Record<string, number[]>>({});
 
   // Price update countdown - 1 second updates
   useEffect(() => {
@@ -324,6 +325,8 @@ export const TradingChart = ({
       if (cached && cached.length) {
         candlestickSeriesRef.current.setData(cached);
         setLastCandle(cached[cached.length - 1] || null);
+        const recentFromCache = cached.slice(-5).map(c => Number(c.close));
+        liveRecentClosesRef.current[cacheKey] = recentFromCache;
         setIsLoadingData(false);
         return;
       }
@@ -338,12 +341,30 @@ export const TradingChart = ({
       const volPerc = getVolatilityForTimeframe(targetTimeframe);
 
       let price = basePrice;
+      const recentCloses: number[] = [];
       for (let i = maxCandles - 1; i >= 0; i--) {
         const time = (lastTime - i * timeframeSeconds) as UTCTimestamp;
         const change = (Math.random() - 0.5) * volPerc;
         const open = price;
         let close = open * (1 + change);
-        if (!Number.isFinite(close) || close <= 0) close = Math.max(0.0001, open);
+        if (!Number.isFinite(close) || close <= 0) {
+          close = Math.max(0.0001, open);
+        }
+
+        const { minMove } = getPriceFormatForPrice(open);
+        const pctThreshold = open > 0 ? open * 0.0002 : 0;
+        const bodyThreshold = Math.max(minMove, pctThreshold);
+        let adjustedClose = close;
+        let attempts = 0;
+        while (recentCloses.some(c => Math.abs(c - adjustedClose) < bodyThreshold) && attempts < 5) {
+          const direction = Math.random() < 0.5 ? -1 : 1;
+          adjustedClose += direction * bodyThreshold;
+          if (adjustedClose <= 0) {
+            adjustedClose = Math.max(bodyThreshold, open);
+          }
+          attempts++;
+        }
+        close = adjustedClose;
 
         const highBase = Math.max(open, close);
         const lowBase = Math.min(open, close);
@@ -358,12 +379,18 @@ export const TradingChart = ({
           close,
         });
 
+        recentCloses.push(close);
+        if (recentCloses.length > 5) {
+          recentCloses.shift();
+        }
         price = close;
       }
 
       candleCacheRef.current[cacheKey] = chartData;
       candlestickSeriesRef.current.setData(chartData);
       setLastCandle(chartData[chartData.length - 1] || null);
+      const recentFromGenerated = chartData.slice(-5).map(c => Number(c.close));
+      liveRecentClosesRef.current[cacheKey] = recentFromGenerated;
 
       if (chartRef.current) {
         chartRef.current.timeScale().fitContent();
@@ -388,21 +415,41 @@ export const TradingChart = ({
     if (!asset || !candlestickSeriesRef.current) return;
     if (!asset.current_price || asset.current_price <= 0) return;
 
-    // Skip if data is currently loading/generating
     if (isLoadingData) return;
 
     const now = Math.floor(Date.now() / 1000);
     const timeframeSeconds = getTimeframeSeconds(timeframe);
     const bucketTime = Math.floor(now / timeframeSeconds) * timeframeSeconds as UTCTimestamp;
-    const currentPrice = asset.current_price;
+    const rawPrice = asset.current_price;
+    const cacheKey = asset ? `${asset.id}_${timeframe}` : '';
 
-    // Check for massive price jumps (e.g. switching from static to live price)
-    // Only check if we have a last candle and it matches the current timeframe
+    let currentPrice = rawPrice;
+    if (cacheKey) {
+      const recent = liveRecentClosesRef.current[cacheKey] || [];
+      const { minMove } = getPriceFormatForPrice(rawPrice);
+      const pctThreshold = rawPrice > 0 ? rawPrice * 0.0002 : 0;
+      const bodyThreshold = Math.max(minMove, pctThreshold);
+      let adjusted = currentPrice;
+      let attempts = 0;
+      while (recent.some(c => Math.abs(c - adjusted) < bodyThreshold) && attempts < 5) {
+        const direction = Math.random() < 0.5 ? -1 : 1;
+        adjusted += direction * bodyThreshold;
+        if (adjusted <= 0) {
+          adjusted = Math.max(bodyThreshold, rawPrice);
+        }
+        attempts++;
+      }
+      currentPrice = adjusted;
+      const updatedRecent = [...recent, currentPrice];
+      liveRecentClosesRef.current[cacheKey] = updatedRecent.slice(-5);
+    }
+
     if (lastCandle) {
       const priceDiffPercent = Math.abs((currentPrice - lastCandle.close) / lastCandle.close);
       if (priceDiffPercent > 0.1) {
-        const cacheKey = `${asset.id}_${timeframe}`;
-        delete candleCacheRef.current[cacheKey];
+        const resetKey = `${asset.id}_${timeframe}`;
+        delete candleCacheRef.current[resetKey];
+        delete liveRecentClosesRef.current[resetKey];
         generateHistoricalData(asset, timeframe);
         return;
       }
@@ -431,10 +478,10 @@ export const TradingChart = ({
       next = normalizeCandleBody(next, currentPrice);
       candlestickSeriesRef.current?.update(next);
 
-      const cacheKey = asset ? `${asset.id}_${timeframe}` : '';
-      if (cacheKey) {
+      const key = asset ? `${asset.id}_${timeframe}` : '';
+      if (key) {
         const [, maxCandles] = getCandleLimits(timeframe);
-        const existing = candleCacheRef.current[cacheKey] || [];
+        const existing = candleCacheRef.current[key] || [];
         let updated: CandlestickData[];
         if (!prev || prev.time !== bucketTime) {
           updated = [...existing, next];
@@ -449,7 +496,7 @@ export const TradingChart = ({
             updated = [next];
           }
         }
-        candleCacheRef.current[cacheKey] = updated;
+        candleCacheRef.current[key] = updated;
       }
       return next;
     });
