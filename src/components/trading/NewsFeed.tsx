@@ -42,9 +42,15 @@ const getRandomInt = (min: number, max: number) => Math.floor(Math.random() * (m
 
 const generateNewsEvent = (scheduledTime: Date | null, assetPrice: number | null): NewsEvent => {
     const asset = getRandomItem(ASSETS);
-    // If we have a price passed, use it, otherwise use asset default (for initial generation)
-    const currentPrice = assetPrice || asset.current_price;
-    
+
+    const hasValidPassedPrice =
+      typeof assetPrice === "number" && Number.isFinite(assetPrice) && assetPrice > 0;
+    const basePrice = hasValidPassedPrice
+      ? assetPrice as number
+      : asset.category === "forex"
+        ? 1
+        : 100;
+
     const isBreaking = Math.random() > 0.8; // 20% chance of breaking news
     const type = isBreaking ? "Breaking News" : "Market Sentiment";
     const impactType = Math.random() > 0.5 ? "bullish" : "bearish";
@@ -57,8 +63,14 @@ const generateNewsEvent = (scheduledTime: Date | null, assetPrice: number | null
 
     let headline = "";
     let content = "";
-    
-    const priceStr = currentPrice > 1 ? currentPrice.toFixed(2) : currentPrice.toPrecision(4);
+
+    const priceForText = basePrice > 0 ? basePrice : 1;
+    const priceStr =
+      asset.category === "forex"
+        ? priceForText.toFixed(4)
+        : priceForText > 1
+          ? priceForText.toFixed(2)
+          : priceForText.toPrecision(4);
 
     if (isBreaking) {
         if (impactType === 'bullish') {
