@@ -62,25 +62,44 @@ const AssetSelector = ({
   };
 
   useEffect(() => {
-    const fetchPendingNews = async () => {
-      // Mock news
-      const mockNews: NewsEvent[] = [
-        {
-          id: '1',
-          scheduled_for: new Date(Date.now() + 1000 * 60 * 30).toISOString(),
-          assets: { id: 'btc', symbol: 'BTC', name: 'Bitcoin' },
-          asset_id: 'btc'
-        },
-        {
-          id: '2',
-          scheduled_for: new Date(Date.now() + 1000 * 60 * 60 * 2).toISOString(),
-          assets: { id: 'eth', symbol: 'ETH', name: 'Ethereum' },
-          asset_id: 'eth'
-        }
-      ];
-      setPendingNews(mockNews);
-    };
-    fetchPendingNews();
+    const now = new Date();
+    const minutes = now.getMinutes();
+    const seconds = now.getSeconds();
+
+    let firstMinute: number;
+    if (minutes < 20) {
+      firstMinute = 20;
+    } else if (minutes < 40) {
+      firstMinute = 40;
+    } else {
+      firstMinute = 60;
+    }
+
+    const firstEvent = new Date(now);
+    firstEvent.setMinutes(firstMinute, 0, 0);
+    if (firstMinute === 60) {
+      firstEvent.setHours(firstEvent.getHours() + 1);
+      firstEvent.setMinutes(0, 0, 0);
+    }
+
+    const secondEvent = new Date(firstEvent);
+    secondEvent.setMinutes(firstEvent.getMinutes() + 20, 0, 0);
+
+    const mockNews: NewsEvent[] = [
+      {
+        id: '1',
+        scheduled_for: firstEvent.toISOString(),
+        assets: { id: 'btc', symbol: 'BTC', name: 'Bitcoin' },
+        asset_id: 'btc'
+      },
+      {
+        id: '2',
+        scheduled_for: secondEvent.toISOString(),
+        assets: { id: 'eth', symbol: 'ETH', name: 'Ethereum' },
+        asset_id: 'eth'
+      }
+    ];
+    setPendingNews(mockNews);
 
     // Update countdown every second
     const interval = setInterval(() => {
@@ -94,7 +113,7 @@ const AssetSelector = ({
     ? [] 
     : assets.filter(asset => asset.category === selectedCategory).slice(0, 5);
 
-  const categories = [
+const categories = [
     { id: 'crypto' as const, label: 'Crypto', icon: Bitcoin },
     { id: 'stocks' as const, label: 'Stocks', icon: LineChart },
     { id: 'forex' as const, label: 'Forex', icon: DollarSign },
@@ -106,7 +125,7 @@ const AssetSelector = ({
     const now = Date.now();
     const scheduled = new Date(scheduledFor).getTime();
     const diff = scheduled - now;
-    if (diff <= 0) return "Triggering...";
+    if (diff <= 0) return "";
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const minutes = Math.floor(diff % (1000 * 60 * 60) / (1000 * 60));
     const seconds = Math.floor(diff % (1000 * 60) / 1000);
@@ -115,6 +134,8 @@ const AssetSelector = ({
     }
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
+
+  const activePendingNews = pendingNews.filter(news => getCountdown(news.scheduled_for) !== "");
 
   return (
     <>
@@ -152,12 +173,12 @@ const AssetSelector = ({
         ) : (
           <div className="flex gap-3 overflow-x-auto pb-2">
             {selectedCategory === 'news' ? (
-              pendingNews.length === 0 ? (
+              activePendingNews.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-4 w-full text-center">
                   No pending news events
                 </p>
               ) : (
-                pendingNews.map(news => (
+                activePendingNews.map(news => (
                   <button 
                     key={news.id} 
                     onClick={() => {

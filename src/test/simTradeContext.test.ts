@@ -14,13 +14,18 @@ class MockWebSocket {
   }
 }
 
-(globalThis as any).WebSocket = MockWebSocket as any;
-(globalThis as any).localStorage = {
+const globalWithOverrides = globalThis as typeof globalThis & {
+  WebSocket: typeof WebSocket;
+  localStorage: Storage;
+};
+
+globalWithOverrides.WebSocket = MockWebSocket as unknown as typeof WebSocket;
+globalWithOverrides.localStorage = {
   getItem: vi.fn(() => null),
   setItem: vi.fn(),
   removeItem: vi.fn(),
   clear: vi.fn(),
-};
+} as unknown as Storage;
 
 describe("SimTradeContext", () => {
   it("mounts provider without runtime errors", () => {
@@ -35,6 +40,39 @@ describe("SimTradeContext", () => {
         React.createElement(TestComponent)
       )
     );
+  });
+
+  it("overridePrice updates asset price in context", async () => {
+    const observedPrices: number[] = [];
+
+    const TestComponent = () => {
+      const { overridePrice, prices } = useSimTrade();
+
+      useEffect(() => {
+        overridePrice("BTC", 12345);
+      }, [overridePrice]);
+
+      useEffect(() => {
+        const value = prices["BTC"];
+        if (value) {
+          observedPrices.push(value);
+        }
+      }, [prices]);
+
+      return null;
+    };
+
+    render(
+      React.createElement(
+        SimTradeProvider,
+        null,
+        React.createElement(TestComponent)
+      )
+    );
+
+    await waitFor(() => {
+      expect(observedPrices.at(-1)).toBe(12345);
+    });
   });
 
 });
