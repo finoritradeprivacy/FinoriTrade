@@ -71,10 +71,16 @@ const validateCandle = (c: Partial<CandlestickData>): CandlestickData | null => 
 
 const sanitizeCandles = (arr?: unknown[]): CandlestickData[] => {
   if (!Array.isArray(arr)) return [];
-  return arr
+  const valid = arr
     .map(c => validateCandle(c as CandlestickData))
-    .filter((c): c is CandlestickData => c !== null)
-    .sort((a, b) => (a.time as number) - (b.time as number)); // Ensure sorted
+    .filter((c): c is CandlestickData => c !== null && (c.time as number) > 0)
+    .sort((a, b) => (a.time as number) - (b.time as number));
+  
+  // Deduplicate by time (keep the last one encountered for each time)
+  const unique = new Map<number, CandlestickData>();
+  valid.forEach(c => unique.set(c.time as number, c));
+  
+  return Array.from(unique.values()).sort((a, b) => (a.time as number) - (b.time as number));
 };
 
 const sanitizeDrawings = (raw: unknown): Drawing[] => {
@@ -380,6 +386,14 @@ export const TradingChart = ({
 
   const generateHistoricalData = useCallback(async (targetAsset: Asset, targetTimeframe: Timeframe) => {
     if (!candlestickSeriesRef.current || !targetAsset) return;
+    
+    // Clear existing data to prevent conflicts during load
+    try {
+      candlestickSeriesRef.current.setData([]);
+    } catch (e) {
+      console.error('Failed to clear chart data', e);
+    }
+
     setIsLoadingData(true);
     try {
       const cacheKey = `${targetAsset.id}_${targetTimeframe}`;
@@ -667,6 +681,16 @@ export const TradingChart = ({
   useEffect(() => {
     if (!asset) return;
     const symbol = asset.symbol || asset.id;
+    
+    const safeTimestamp = (val: unknown): number => {
+      if (typeof val === 'number') return Math.floor(val / 1000);
+      if (typeof val === 'string') {
+        const d = new Date(val).getTime();
+        if (!Number.isNaN(d)) return Math.floor(d / 1000);
+      }
+      return Math.floor(Date.now() / 1000);
+    };
+
     const filtered = ctxTrades
       .filter(t => t.symbol === symbol)
       .slice(0, 50)
@@ -675,7 +699,7 @@ export const TradingChart = ({
         type: t.side,
         price: t.price,
         amount: t.quantity,
-        timestamp: Math.floor((t.createdAt || Date.now()) / 1000),
+        timestamp: safeTimestamp(t.createdAt),
       }));
     const unique = new Map<string, Trade>();
     filtered.forEach(tr => {
@@ -915,10 +939,14 @@ export const TradingChart = ({
     const allMarkers = [...tradeMarkers, ...markers];
 
     // Use lightweight-charts v5 API for markers
-    if (!markersRef.current) {
-      markersRef.current = createSeriesMarkers(series, allMarkers);
-    } else {
-      markersRef.current.setMarkers(allMarkers);
+    try {
+      if (!markersRef.current) {
+        markersRef.current = createSeriesMarkers(series, allMarkers);
+      } else {
+        markersRef.current.setMarkers(allMarkers);
+      }
+    } catch (e) {
+      console.error('Failed to set markers:', e);
     }
   }, [drawings, trades]);
 
