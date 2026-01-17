@@ -182,6 +182,7 @@ export const TradingChart = ({
   const { trades: ctxTrades } = useSimTrade();
   const lastGenerationPriceRef = useRef<number | null>(null);
   const currentAssetIdRef = useRef<string | null>(null);
+  const candleCacheRef = useRef<Record<string, CandlestickData[]>>({});
 
   // Price update countdown - 1 second updates
   useEffect(() => {
@@ -315,48 +316,58 @@ export const TradingChart = ({
     if (!candlestickSeriesRef.current || !targetAsset) return;
     setIsLoadingData(true);
     try {
+      const cacheKey = `${targetAsset.id}_${targetTimeframe}`;
+      const cached = candleCacheRef.current[cacheKey];
+      if (cached && cached.length) {
+        candlestickSeriesRef.current.setData(cached);
+        setLastCandle(cached[cached.length - 1] || null);
+        setIsLoadingData(false);
+        return;
+      }
+
       const [minCandles, maxCandles] = getCandleLimits(targetTimeframe);
       const timeframeSeconds = getTimeframeSeconds(targetTimeframe);
       const now = Math.floor(Date.now() / 1000);
       const bucketTime = Math.floor(now / timeframeSeconds) * timeframeSeconds as UTCTimestamp;
       
-      // Generate deterministic seed from asset ID
       let seed = 0;
-      for(let i = 0; i < targetAsset.id.length; i++) seed += targetAsset.id.charCodeAt(i);
+      for (let i = 0; i < targetAsset.id.length; i++) seed += targetAsset.id.charCodeAt(i);
       const rng = seededRandom(seed);
 
-      // Mock data generation BACKWARDS from current price
-      // This ensures the chart connects perfectly to the current real-time price
       const chartData: CandlestickData[] = [];
       let currentClose = targetAsset.current_price;
       let currentTime = bucketTime;
 
-      // Adjust volatility based on timeframe (scaling with square root of time)
-      // Base volatility: 0.2% per minute (increased from 0.1% to prevent flat candles)
       const baseVolatility = 0.002; 
       const timeScaler = Math.sqrt(timeframeSeconds / 60);
       const volatility = currentClose * baseVolatility * timeScaler;
       
-      // Minimum move size to avoid flat candles on low volatility
-      const minMoveSize = currentClose * 0.00005; // 0.005% minimum move
+      const minMoveSize = currentClose * 0.00005;
 
-      // Trend simulation state
       let trend = (rng() - 0.5) * volatility * 0.5;
+      const recentCloses: number[] = [];
 
       for (let i = 0; i < maxCandles; i++) {
-        // Update trend occasionally to create waves
         if (rng() < 0.05) {
           trend = (rng() - 0.5) * volatility * 0.5;
         }
 
         let move = trend + (rng() - 0.5) * volatility;
         
-        // Ensure minimum movement if volatility is very low
         if (Math.abs(move) < minMoveSize) {
           move = Math.sign(move || 1) * minMoveSize;
         }
 
-        const close = currentClose;
+        const pctThreshold = currentClose > 0 ? currentClose * 0.0002 : 0;
+        const bodyThreshold = Math.max(minMoveSize, pctThreshold);
+
+        let close = currentClose;
+        let attempts = 0;
+        while (recentCloses.some(c => Math.abs(c - close) < bodyThreshold) && attempts < 6) {
+          close += Math.sign(move || 1) * bodyThreshold;
+          attempts++;
+        }
+
         const open = close - move;
         const high = Math.max(open, close) + rng() * volatility * 0.5;
         const low = Math.min(open, close) - rng() * volatility * 0.5;
@@ -369,12 +380,16 @@ export const TradingChart = ({
           close
         });
 
+        recentCloses.push(close);
+        if (recentCloses.length > 5) recentCloses.shift();
+
         currentClose = open;
         currentTime -= timeframeSeconds;
       }
 
       chartData.reverse();
 
+      candleCacheRef.current[cacheKey] = chartData;
       candlestickSeriesRef.current.setData(chartData);
       setLastCandle(chartData[chartData.length - 1] || null);
 
@@ -413,8 +428,9 @@ export const TradingChart = ({
     // Only check if we have a last candle and it matches the current timeframe
     if (lastCandle) {
       const priceDiffPercent = Math.abs((currentPrice - lastCandle.close) / lastCandle.close);
-      // Increased threshold to 10% to prevent accidental regeneration on volatile assets
       if (priceDiffPercent > 0.1) {
+        const cacheKey = `${asset.id}_${timeframe}`;
+        delete candleCacheRef.current[cacheKey];
         generateHistoricalData(asset, timeframe);
         return;
       }
@@ -442,6 +458,27 @@ export const TradingChart = ({
       }
       next = normalizeCandleBody(next, currentPrice);
       candlestickSeriesRef.current?.update(next);
+
+      const cacheKey = asset ? `${asset.id}_${timeframe}` : '';
+      if (cacheKey) {
+        const [, maxCandles] = getCandleLimits(timeframe);
+        const existing = candleCacheRef.current[cacheKey] || [];
+        let updated: CandlestickData[];
+        if (!prev || prev.time !== bucketTime) {
+          updated = [...existing, next];
+          if (updated.length > maxCandles) {
+            updated = updated.slice(updated.length - maxCandles);
+          }
+        } else {
+          updated = existing.length ? [...existing] : [];
+          if (updated.length) {
+            updated[updated.length - 1] = next;
+          } else {
+            updated = [next];
+          }
+        }
+        candleCacheRef.current[cacheKey] = updated;
+      }
       return next;
     });
   }, [asset?.id, asset?.current_price, timeframe]);
