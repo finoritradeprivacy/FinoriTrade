@@ -45,6 +45,38 @@ interface Drawing {
   text?: string;
 }
 
+const validateCandle = (c: Partial<CandlestickData>): CandlestickData | null => {
+  const timeNumber = Number(c.time as unknown as number);
+  const openNumber = Number(c.open);
+  const highNumber = Number(c.high);
+  const lowNumber = Number(c.low);
+  const closeNumber = Number(c.close);
+
+  if (!Number.isFinite(timeNumber) ||
+    !Number.isFinite(openNumber) ||
+    !Number.isFinite(highNumber) ||
+    !Number.isFinite(lowNumber) ||
+    !Number.isFinite(closeNumber)) {
+    return null;
+  }
+  
+  return {
+    time: timeNumber as UTCTimestamp,
+    open: openNumber,
+    high: highNumber,
+    low: lowNumber,
+    close: closeNumber
+  };
+};
+
+const sanitizeCandles = (arr?: unknown[]): CandlestickData[] => {
+  if (!Array.isArray(arr)) return [];
+  return arr
+    .map(c => validateCandle(c as CandlestickData))
+    .filter((c): c is CandlestickData => c !== null)
+    .sort((a, b) => (a.time as number) - (b.time as number)); // Ensure sorted
+};
+
 const sanitizeDrawings = (raw: unknown): Drawing[] => {
   if (!Array.isArray(raw)) return [];
   const validTypes: DrawingTool[] = ['none', 'trendline', 'horizontal', 'rectangle', 'text'];
@@ -350,35 +382,6 @@ export const TradingChart = ({
     if (!candlestickSeriesRef.current || !targetAsset) return;
     setIsLoadingData(true);
     try {
-      const validateCandle = (c: CandlestickData): CandlestickData | null => {
-        const timeNumber = Number((c.time as unknown as number));
-        const openNumber = Number(c.open);
-        const highNumber = Number(c.high);
-        const lowNumber = Number(c.low);
-        const closeNumber = Number(c.close);
-        if (!Number.isFinite(timeNumber) ||
-          !Number.isFinite(openNumber) ||
-          !Number.isFinite(highNumber) ||
-          !Number.isFinite(lowNumber) ||
-          !Number.isFinite(closeNumber)) {
-          return null;
-        }
-        return {
-          time: timeNumber as UTCTimestamp,
-          open: openNumber,
-          high: highNumber,
-          low: lowNumber,
-          close: closeNumber
-        };
-      };
-
-      const sanitizeCandles = (arr?: CandlestickData[]): CandlestickData[] => {
-        if (!arr) return [];
-        return arr
-          .map(validateCandle)
-          .filter((c): c is CandlestickData => c !== null);
-      };
-
       const cacheKey = `${targetAsset.id}_${targetTimeframe}`;
       let cached = sanitizeCandles(candleCacheRef.current[cacheKey]);
 
@@ -386,7 +389,7 @@ export const TradingChart = ({
         const stored = localStorage.getItem(`candles_${cacheKey}`);
         if (stored) {
           try {
-            const parsed = JSON.parse(stored) as CandlestickData[];
+            const parsed = JSON.parse(stored);
             if (Array.isArray(parsed) && parsed.length) {
               cached = sanitizeCandles(parsed);
             }
@@ -615,7 +618,7 @@ export const TradingChart = ({
           high: currentPrice,
           low: currentPrice,
           close: currentPrice
-        };
+        } as CandlestickData;
       } else {
         next = {
           time: bucketTime,
@@ -623,10 +626,16 @@ export const TradingChart = ({
           high: Math.max(prev.high, currentPrice),
           low: Math.min(prev.low, currentPrice),
           close: currentPrice
-        };
+        } as CandlestickData;
       }
       next = normalizeCandleBody(next, currentPrice);
-      candlestickSeriesRef.current?.update(next);
+
+      const validatedNext = validateCandle(next);
+      if (!validatedNext) {
+        return prev;
+      }
+
+      candlestickSeriesRef.current?.update(validatedNext);
 
       const key = asset ? `${asset.id}_${timeframe}` : '';
       if (key) {
@@ -634,22 +643,22 @@ export const TradingChart = ({
         const existing = candleCacheRef.current[key] || [];
         let updated: CandlestickData[];
         if (!prev || prev.time !== bucketTime) {
-          updated = [...existing, next];
+          updated = [...existing, validatedNext];
           if (updated.length > maxCandles) {
             updated = updated.slice(updated.length - maxCandles);
           }
         } else {
           updated = existing.length ? [...existing] : [];
           if (updated.length) {
-            updated[updated.length - 1] = next;
+            updated[updated.length - 1] = validatedNext;
           } else {
-            updated = [next];
+            updated = [validatedNext];
           }
         }
         candleCacheRef.current[key] = updated;
         localStorage.setItem(`candles_${key}`, JSON.stringify(updated));
       }
-      return next;
+      return validatedNext;
     });
   }, [asset?.id, asset?.current_price, timeframe]);
 
