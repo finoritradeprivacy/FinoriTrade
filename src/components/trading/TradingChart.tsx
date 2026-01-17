@@ -181,15 +181,25 @@ const normalizeCandleBody = (candle: CandlestickData, price: number): Candlestic
   const pctThreshold = price > 0 ? price * 0.0002 : 0;
   const bodyThreshold = Math.max(minMove, pctThreshold);
   const diff = Math.abs(close - open);
-  if (bodyThreshold === 0 || diff >= bodyThreshold) return candle;
-  const direction = price >= open ? 1 : -1;
-  const adjustedClose = open + direction * bodyThreshold;
+
+  let adjustedClose = close;
+  if (bodyThreshold !== 0 && diff < bodyThreshold) {
+    const direction = price >= open ? 1 : -1;
+    adjustedClose = open + direction * bodyThreshold;
+  }
+
   let high = Number(candle.high);
   let low = Number(candle.low);
   if (!Number.isFinite(high)) high = Math.max(open, adjustedClose);
   if (!Number.isFinite(low)) low = Math.min(open, adjustedClose);
-  high = Math.max(high, open, adjustedClose);
-  low = Math.min(low, open, adjustedClose);
+
+  const highBase = Math.max(open, adjustedClose);
+  const lowBase = Math.min(open, adjustedClose);
+  const wickSize = Math.max(minMove, highBase * 0.0002);
+
+  if (high < highBase + wickSize) high = highBase + wickSize;
+  if (low > lowBase - wickSize) low = lowBase - wickSize;
+
   return {
     ...candle,
     close: adjustedClose,
