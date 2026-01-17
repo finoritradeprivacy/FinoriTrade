@@ -340,6 +340,18 @@ export const TradingChart = ({
       const now = Math.floor(Date.now() / 1000);
       const nowBucket = Math.floor(now / timeframeSeconds) * timeframeSeconds as UTCTimestamp;
 
+      const validateCandle = (c: CandlestickData): CandlestickData | null => {
+        if (!Number.isFinite(c.open) || !Number.isFinite(c.high) || 
+            !Number.isFinite(c.low) || !Number.isFinite(c.close)) return null;
+        return {
+            time: c.time,
+            open: Number(c.open),
+            high: Number(c.high),
+            low: Number(c.low),
+            close: Number(c.close)
+        };
+      };
+
       if (cached && cached.length) {
         const extended = [...cached];
         const volPercExisting = getVolatilityForTimeframe(targetTimeframe);
@@ -374,10 +386,14 @@ export const TradingChart = ({
 
           const highBase = Math.max(open, close);
           const lowBase = Math.min(open, close);
-          const high = highBase * (1 + Math.random() * volPercExisting * 0.5);
-          const low = lowBase * (1 - Math.random() * volPercExisting * 0.5);
+          const wickSize = Math.max(minMove, highBase * 0.0002);
+          let high = highBase * (1 + Math.random() * volPercExisting * 0.5);
+          let low = lowBase * (1 - Math.random() * volPercExisting * 0.5);
+          
+          if (high < highBase + wickSize) high = highBase + wickSize;
+          if (low > lowBase - wickSize) low = lowBase - wickSize;
 
-          extended.push({
+          const candle = validateCandle({
             time,
             open,
             high,
@@ -385,12 +401,17 @@ export const TradingChart = ({
             close,
           });
 
-          recentClosesExisting.push(close);
-          if (recentClosesExisting.length > 5) {
-            recentClosesExisting.shift();
+          if (candle) {
+            extended.push(candle);
+            recentClosesExisting.push(candle.close);
+            if (recentClosesExisting.length > 5) {
+              recentClosesExisting.shift();
+            }
+            price = candle.close;
+            lastTime = Number(time);
+          } else {
+            lastTime += timeframeSeconds;
           }
-          price = close;
-          lastTime = Number(time);
         }
 
         candleCacheRef.current[cacheKey] = extended;
@@ -442,10 +463,14 @@ export const TradingChart = ({
 
         const highBase = Math.max(open, close);
         const lowBase = Math.min(open, close);
-        const high = highBase * (1 + Math.random() * volPerc * 0.5);
-        const low = lowBase * (1 - Math.random() * volPerc * 0.5);
+        const wickSize = Math.max(minMove, highBase * 0.0002);
+        let high = highBase * (1 + Math.random() * volPerc * 0.5);
+        let low = lowBase * (1 - Math.random() * volPerc * 0.5);
+        
+        if (high < highBase + wickSize) high = highBase + wickSize;
+        if (low > lowBase - wickSize) low = lowBase - wickSize;
 
-        chartData.push({
+        const candle = validateCandle({
           time,
           open,
           high,
@@ -453,11 +478,14 @@ export const TradingChart = ({
           close,
         });
 
-        recentCloses.push(close);
-        if (recentCloses.length > 5) {
-          recentCloses.shift();
+        if (candle) {
+          chartData.push(candle);
+          recentCloses.push(candle.close);
+          if (recentCloses.length > 5) {
+            recentCloses.shift();
+          }
+          price = candle.close;
         }
-        price = close;
       }
 
       candleCacheRef.current[cacheKey] = chartData;

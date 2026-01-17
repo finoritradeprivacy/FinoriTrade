@@ -77,8 +77,8 @@ const NewsFeed = () => {
         setNews(prev => [newEvent, ...prev].slice(0, 15));
         
         // Play notification sound
-        const audio = new Audio('/notification.mp3');
-        audio.play().catch(() => {});
+        // const audio = new Audio('/notification.mp3');
+        // audio.play().catch(() => {});
     }, 60000 * 5); // Every 5 minutes
 
     // Initial countdown calculation
