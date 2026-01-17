@@ -59,6 +59,20 @@ const getTimeframeSeconds = (tf: Timeframe): number => {
   }
 };
 
+const getVolatilityForTimeframe = (tf: Timeframe): number => {
+  switch (tf) {
+    case '1s': return 0.0005;
+    case '1m': return 0.002;
+    case '5m': return 0.004;
+    case '15m': return 0.006;
+    case '1h': return 0.01;
+    case '4h': return 0.015;
+    case '1d': return 0.02;
+    case '1w': return 0.03;
+    default: return 0.002;
+  }
+};
+
 const getPriceFormatForPrice = (price: number) => {
   let precision = 2;
   let minMove = 0.01;
@@ -75,17 +89,6 @@ const getPriceFormatForPrice = (price: number) => {
     }
   }
   return { precision, minMove };
-};
-
-const seededRandom = (seed: number) => {
-  const m = 0x80000000;
-  const a = 1103515245;
-  const c = 12345;
-  let state = seed ? seed : Math.floor(Math.random() * (m - 1));
-  return () => {
-    state = (a * state + c) % m;
-    return state / (m - 1);
-  };
 };
 
 const getCandleLimits = (timeframe: Timeframe): [number, number] => {
@@ -328,66 +331,37 @@ export const TradingChart = ({
       const [minCandles, maxCandles] = getCandleLimits(targetTimeframe);
       const timeframeSeconds = getTimeframeSeconds(targetTimeframe);
       const now = Math.floor(Date.now() / 1000);
-      const bucketTime = Math.floor(now / timeframeSeconds) * timeframeSeconds as UTCTimestamp;
-      
-      let seed = 0;
-      for (let i = 0; i < targetAsset.id.length; i++) seed += targetAsset.id.charCodeAt(i);
-      const rng = seededRandom(seed);
+      const lastTime = Math.floor(now / timeframeSeconds) * timeframeSeconds;
 
+      const [, maxCandles] = getCandleLimits(targetTimeframe);
       const chartData: CandlestickData[] = [];
-      let currentClose = targetAsset.current_price;
-      let currentTime = bucketTime;
 
-      const baseVolatility = 0.002; 
-      const timeScaler = Math.sqrt(timeframeSeconds / 60);
-      const volatility = currentClose * baseVolatility * timeScaler;
-      
-      const minMoveSize = currentClose * 0.00005;
+      const basePrice = targetAsset.current_price > 0 ? targetAsset.current_price : 100;
+      const volPerc = getVolatilityForTimeframe(targetTimeframe);
 
-      let trend = (rng() - 0.5) * volatility * 0.5;
-      const recentCloses: number[] = [];
+      let price = basePrice;
+      for (let i = maxCandles - 1; i >= 0; i--) {
+        const time = (lastTime - i * timeframeSeconds) as UTCTimestamp;
+        const change = (Math.random() - 0.5) * volPerc;
+        const open = price;
+        let close = open * (1 + change);
+        if (!Number.isFinite(close) || close <= 0) close = Math.max(0.0001, open);
 
-      for (let i = 0; i < maxCandles; i++) {
-        if (rng() < 0.05) {
-          trend = (rng() - 0.5) * volatility * 0.5;
-        }
-
-        let move = trend + (rng() - 0.5) * volatility;
-        
-        if (Math.abs(move) < minMoveSize) {
-          move = Math.sign(move || 1) * minMoveSize;
-        }
-
-        const pctThreshold = currentClose > 0 ? currentClose * 0.0002 : 0;
-        const bodyThreshold = Math.max(minMoveSize, pctThreshold);
-
-        let close = currentClose;
-        let attempts = 0;
-        while (recentCloses.some(c => Math.abs(c - close) < bodyThreshold) && attempts < 6) {
-          close += Math.sign(move || 1) * bodyThreshold;
-          attempts++;
-        }
-
-        const open = close - move;
-        const high = Math.max(open, close) + rng() * volatility * 0.5;
-        const low = Math.min(open, close) - rng() * volatility * 0.5;
+        const highBase = Math.max(open, close);
+        const lowBase = Math.min(open, close);
+        const high = highBase * (1 + Math.random() * volPerc * 0.5);
+        const low = lowBase * (1 - Math.random() * volPerc * 0.5);
 
         chartData.push({
-          time: currentTime as UTCTimestamp,
+          time,
           open,
           high,
           low,
-          close
+          close,
         });
 
-        recentCloses.push(close);
-        if (recentCloses.length > 5) recentCloses.shift();
-
-        currentClose = open;
-        currentTime -= timeframeSeconds;
+        price = close;
       }
-
-      chartData.reverse();
 
       candleCacheRef.current[cacheKey] = chartData;
       candlestickSeriesRef.current.setData(chartData);
