@@ -320,16 +320,35 @@ export const TradingChart = ({
     if (!candlestickSeriesRef.current || !targetAsset) return;
     setIsLoadingData(true);
     try {
-      const cacheKey = `${targetAsset.id}_${targetTimeframe}`;
-      let cached = candleCacheRef.current[cacheKey];
+      const validateCandle = (c: CandlestickData): CandlestickData | null => {
+        if (!Number.isFinite(c.open) || !Number.isFinite(c.high) ||
+          !Number.isFinite(c.low) || !Number.isFinite(c.close)) return null;
+        return {
+          time: c.time,
+          open: Number(c.open),
+          high: Number(c.high),
+          low: Number(c.low),
+          close: Number(c.close)
+        };
+      };
 
-      if (!cached || !cached.length) {
+      const sanitizeCandles = (arr?: CandlestickData[]): CandlestickData[] => {
+        if (!arr) return [];
+        return arr
+          .map(validateCandle)
+          .filter((c): c is CandlestickData => c !== null);
+      };
+
+      const cacheKey = `${targetAsset.id}_${targetTimeframe}`;
+      let cached = sanitizeCandles(candleCacheRef.current[cacheKey]);
+
+      if (!cached.length) {
         const stored = localStorage.getItem(`candles_${cacheKey}`);
         if (stored) {
           try {
             const parsed = JSON.parse(stored) as CandlestickData[];
             if (Array.isArray(parsed) && parsed.length) {
-              cached = parsed;
+              cached = sanitizeCandles(parsed);
             }
           } catch {
           }
@@ -339,18 +358,6 @@ export const TradingChart = ({
       const timeframeSeconds = getTimeframeSeconds(targetTimeframe);
       const now = Math.floor(Date.now() / 1000);
       const nowBucket = Math.floor(now / timeframeSeconds) * timeframeSeconds as UTCTimestamp;
-
-      const validateCandle = (c: CandlestickData): CandlestickData | null => {
-        if (!Number.isFinite(c.open) || !Number.isFinite(c.high) || 
-            !Number.isFinite(c.low) || !Number.isFinite(c.close)) return null;
-        return {
-            time: c.time,
-            open: Number(c.open),
-            high: Number(c.high),
-            low: Number(c.low),
-            close: Number(c.close)
-        };
-      };
 
       if (cached && cached.length) {
         const extended = [...cached];
