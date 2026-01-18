@@ -90,47 +90,67 @@ export const Challenges = () => {
   };
 
   const updateStreak = () => {
-    // Mock streak logic using localStorage
-    const lastLoginKey = `streak_last_login_${user?.id}`;
-    const streakKey = `streak_count_${user?.id}`;
-    
+    if (!user) return;
+
+    const lastLoginKey = `streak_last_login_${user.id}`;
+    const streakKey = `streak_count_${user.id}`;
+    const historyKey = `streak_history_${user.id}`;
+
+    const todayDateObj = new Date();
+    const today = todayDateObj.toISOString().split("T")[0];
+
     const lastLogin = localStorage.getItem(lastLoginKey);
-    let currentStreak = parseInt(localStorage.getItem(streakKey) || "0");
-    
-    const today = new Date().toISOString().split('T')[0];
-    
-    if (lastLogin !== today) {
-      if (lastLogin) {
-        const last = new Date(lastLogin);
-        const curr = new Date(today);
-        const diffTime = Math.abs(curr.getTime() - last.getTime());
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-        
-        if (diffDays === 1) {
-          currentStreak++;
-        } else if (diffDays > 1) {
-          currentStreak = 1;
+
+    let history: string[] = [];
+    try {
+      const raw = localStorage.getItem(historyKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          history = parsed.filter(d => typeof d === "string");
         }
-      } else {
-        currentStreak = 1;
       }
-      
-      localStorage.setItem(lastLoginKey, today);
-      localStorage.setItem(streakKey, currentStreak.toString());
+    } catch {
     }
-    
+
+    if (!history.includes(today)) {
+      history.push(today);
+    }
+
+    const uniqueHistory = Array.from(new Set(history)).sort();
+
+    const maxDaysToKeep = 30;
+    const trimmedHistory =
+      uniqueHistory.length > maxDaysToKeep
+        ? uniqueHistory.slice(uniqueHistory.length - maxDaysToKeep)
+        : uniqueHistory;
+
+    localStorage.setItem(historyKey, JSON.stringify(trimmedHistory));
+    localStorage.setItem(lastLoginKey, today);
+
+    let currentStreak = 0;
+    const cursor = new Date(today);
+
+    while (true) {
+      const cursorStr = cursor.toISOString().split("T")[0];
+      if (trimmedHistory.includes(cursorStr)) {
+        currentStreak++;
+        cursor.setDate(cursor.getDate() - 1);
+      } else {
+        break;
+      }
+    }
+
+    localStorage.setItem(streakKey, currentStreak.toString());
     setStreak(currentStreak);
 
-    const streakInWeek = Math.max(0, Math.min(currentStreak, 7));
-    const todayDate = new Date();
     const week: DayStatus[] = [];
-
     for (let offset = 6; offset >= 0; offset--) {
-      const d = new Date(todayDate);
-      d.setDate(todayDate.getDate() - (6 - offset));
+      const d = new Date(todayDateObj);
+      d.setDate(todayDateObj.getDate() - (6 - offset));
       const label = d.toLocaleDateString(undefined, { weekday: "short" });
-      const daysFromToday = 6 - offset;
-      const isCompleted = daysFromToday < streakInWeek;
+      const dayStr = d.toISOString().split("T")[0];
+      const isCompleted = trimmedHistory.includes(dayStr);
       week.push({
         day: label,
         status: isCompleted ? "completed" : "pending",
