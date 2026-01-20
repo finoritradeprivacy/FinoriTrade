@@ -177,11 +177,19 @@ export default function Auth() {
   return (
     <div className="min-h-screen bg-black text-white flex">
       {/* Left Side - Features */}
-      <div className="hidden lg:flex w-1/2 flex-col justify-between p-12 relative overflow-hidden">
-        {/* Background Effects */}
-        <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(ellipse_at_top_left,_var(--tw-gradient-stops))] from-purple-900/20 via-black to-black -z-10"></div>
+      <div className="hidden lg:flex w-1/2 flex-col justify-between p-12 relative overflow-hidden bg-black">
+        {/* Background Video */}
+        <video 
+          src="/landing-background.mp4" 
+          autoPlay 
+          loop 
+          muted 
+          playsInline
+          className="absolute top-0 left-0 w-full h-full object-cover opacity-60"
+        />
+        <div className="absolute top-0 left-0 w-full h-full bg-black/60"></div>
         
-        <div>
+        <div className="relative z-10">
           <h1 className="text-4xl font-bold text-primary mb-2">FinoriTrade</h1>
           <p className="text-xl text-gray-400 mb-12">Master trading without financial risk</p>
 
@@ -218,7 +226,7 @@ export default function Auth() {
           </div>
         </div>
 
-        <div className="text-sm text-gray-500 space-y-4">
+        <div className="text-sm text-gray-500 space-y-4 relative z-10">
                 <p>By using this platform, I agree to <a href="https://docs.google.com/document/d/1pDJrRq4CcQAN18keSsrTexdAhXDmeNv14ohOg4wjy8E/edit?usp=sharing" target="_blank" rel="noopener noreferrer" className="text-purple-500 hover:underline">this document</a></p>
                 <div className="flex gap-4">
                   <Link to="/about" className="hover:text-gray-300">About Us</Link>
