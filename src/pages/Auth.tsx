@@ -175,19 +175,19 @@ export default function Auth() {
   const strength = passwordStrengthLabel();
 
   return (
-    <div className="min-h-screen bg-black text-white flex">
+    <div className="min-h-screen bg-black text-white flex relative overflow-hidden">
+      {/* Background Video */}
+      <video 
+        src="/landing-background.mp4" 
+        autoPlay 
+        loop 
+        muted 
+        playsInline
+        className="absolute top-0 left-0 w-full h-full object-cover"
+      />
+      
       {/* Left Side - Features */}
-      <div className="hidden lg:flex w-1/2 flex-col justify-between p-12 relative overflow-hidden bg-black">
-        {/* Background Video */}
-        <video 
-          src="/landing-background.mp4" 
-          autoPlay 
-          loop 
-          muted 
-          playsInline
-          className="absolute top-0 left-0 w-full h-full object-cover opacity-60"
-        />
-        <div className="absolute top-0 left-0 w-full h-full bg-black/60"></div>
+      <div className="hidden lg:flex w-1/2 flex-col justify-between p-12 relative z-10">
         
         <div className="relative z-10">
           <h1 className="text-4xl font-bold text-primary mb-2">FinoriTrade</h1>
@@ -237,7 +237,7 @@ export default function Auth() {
       </div>
 
       {/* Right Side - Auth Form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-4">
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-4 relative z-10">
         <div className="w-full max-w-md p-8 rounded-xl border border-gray-800 bg-gray-950/50 backdrop-blur-sm shadow-xl">
           <Tabs defaultValue="login" className="w-full">
             <TabsList className="grid w-full grid-cols-2 mb-8 bg-gray-900">
