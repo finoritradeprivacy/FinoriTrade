@@ -361,6 +361,9 @@ export const AdminUsers = () => {
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>User Details: {selectedUser?.nickname}</DialogTitle>
+            <DialogDescription>
+              Detailed information about the selected user, including account status and history.
+            </DialogDescription>
           </DialogHeader>
           {selectedUser && (
             <div className="space-y-4">
@@ -485,6 +488,9 @@ export const AdminUsers = () => {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Change Role: {selectedUser?.nickname}</DialogTitle>
+            <DialogDescription>
+              Select a new role for this user. This will affect their permissions and visual badge.
+            </DialogDescription>
           </DialogHeader>
           <div>
             <label className="text-sm font-medium">New Role</label>
