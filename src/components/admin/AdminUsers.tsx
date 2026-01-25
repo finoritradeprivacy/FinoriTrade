@@ -73,33 +73,50 @@ export const AdminUsers = () => {
   const fetchUsers = async () => {
     setLoading(true);
     try {
-      // 1. Fetch profiles with related data
+      // 1. Fetch profiles
       const { data: profiles, error: profilesError } = await supabase
         .from('profiles')
-        .select(`
-          *,
-          player_stats (
-            level,
-            total_xp,
-            achievements
-          ),
-          user_balances (
-            usdt_balance
-          )
-        `);
+        .select('*');
 
       if (profilesError) throw profilesError;
 
+      const userIds = profiles.map(p => p.id);
+
+      // 2. Fetch player stats separately
+      const { data: statsData, error: statsError } = await supabase
+        .from('player_stats')
+        .select('user_id, level, total_xp, achievements')
+        .in('user_id', userIds);
+
+      if (statsError) {
+        console.warn('Error fetching stats:', statsError);
+      }
+
+      // 3. Fetch balances separately
+      const { data: balancesData, error: balancesError } = await supabase
+        .from('user_balances')
+        .select('user_id, usdt_balance')
+        .in('user_id', userIds);
+
+      if (balancesError) {
+        console.warn('Error fetching balances:', balancesError);
+      }
+
+      // Create maps for faster lookup
+      const statsMap = new Map();
+      statsData?.forEach((stat: any) => {
+        statsMap.set(stat.user_id, stat);
+      });
+
+      const balancesMap = new Map();
+      balancesData?.forEach((bal: any) => {
+        balancesMap.set(bal.user_id, bal);
+      });
+
       // Transform profiles to User interface
       const realUsers: User[] = profiles.map((profile: any) => {
-        // Handle potential array or single object response for joined tables
-        const stats = Array.isArray(profile.player_stats) 
-          ? profile.player_stats[0] 
-          : profile.player_stats || {};
-          
-        const balances = Array.isArray(profile.user_balances)
-          ? profile.user_balances[0]
-          : profile.user_balances || {};
+        const stats = statsMap.get(profile.id) || {};
+        const balances = balancesMap.get(profile.id) || {};
         
         const achievements = stats.achievements || {};
         const role = achievements.role || 'User';
