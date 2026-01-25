@@ -5,7 +5,8 @@ import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { TrendingUp, TrendingDown, Award, DollarSign } from "lucide-react";
+import { TrendingUp, TrendingDown, Award, DollarSign, Crown } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 
 interface PlayerData {
   nickname: string;
@@ -17,7 +18,10 @@ interface PlayerData {
   win_rate: number;
   total_profit_loss: number;
   usdt_balance: number;
+  role?: string;
 }
+
+const PREMIUM_ROLES = ["FinoriPro", "FinoriAlpha", "FinoriUltra", "FinoriFamily"];
 
 const PlayerProfile = () => {
   const { user } = useAuth();
@@ -57,6 +61,23 @@ const PlayerProfile = () => {
         const totalProfitLoss = equity - baseBalance;
         const level = 1 + Math.floor(totalTrades / 10);
         const totalXp = totalTrades * 100;
+
+        // Fetch role from Supabase
+        let role = null;
+        try {
+          const { data: stats } = await supabase
+            .from('player_stats')
+            .select('achievements')
+            .eq('user_id', user.id)
+            .single();
+          
+          if (stats && stats.achievements) {
+            role = (stats.achievements as any).role;
+          }
+        } catch (err) {
+          console.error("Error fetching role:", err);
+        }
+
         setPlayerData({
           nickname,
           email,
@@ -67,6 +88,7 @@ const PlayerProfile = () => {
           win_rate: 0,
           total_profit_loss: totalProfitLoss,
           usdt_balance: usdtBalance,
+          role: role
         });
       } catch (error) {
         console.error("Error fetching player data:", error);
@@ -159,10 +181,16 @@ const PlayerProfile = () => {
         </div>
         
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             <h3 className="font-semibold text-foreground truncate">
               {playerData.nickname}
             </h3>
+            {PREMIUM_ROLES.includes(playerData.role || '') && (
+              <Badge className="bg-yellow-500/10 text-yellow-500 border-yellow-500/50 shadow-[0_0_10px_rgba(234,179,8,0.2)] animate-pulse text-[10px] h-5 px-1.5">
+                <Crown className="w-3 h-3 mr-1" />
+                {playerData.role}
+              </Badge>
+            )}
             <Badge variant="secondary" className="text-xs">
               Level {playerData.level}
             </Badge>

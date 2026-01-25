@@ -16,9 +16,10 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { 
   Search, UserX, Shield, RefreshCw, Ban, Trash2, Eye, Download, 
-  Clock, MapPin, Monitor
+  Clock, MapPin, Monitor, Crown
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { supabase } from '@/integrations/supabase/client';
 
 interface User {
   id: string;
@@ -34,6 +35,7 @@ interface User {
   total_xp: number;
   is_admin: boolean;
   is_banned: boolean;
+  role?: string;
 }
 
 interface UserSession {
@@ -45,6 +47,8 @@ interface UserSession {
   logged_in_at: string;
   is_active: boolean;
 }
+
+const PREMIUM_ROLES = ["FinoriPro", "FinoriAlpha", "FinoriUltra", "FinoriFamily"];
 
 export const AdminUsers = () => {
   const [users, setUsers] = useState<User[]>([]);
@@ -60,7 +64,7 @@ export const AdminUsers = () => {
   const [banReason, setBanReason] = useState('');
   const [banType, setBanType] = useState<'temporary' | 'permanent'>('temporary');
   const [banDuration, setBanDuration] = useState('7');
-  const [newRole, setNewRole] = useState<'user' | 'moderator' | 'admin'>('user');
+  const [newRole, setNewRole] = useState<string>('User');
 
   useEffect(() => {
     fetchUsers();
@@ -69,7 +73,50 @@ export const AdminUsers = () => {
   const fetchUsers = async () => {
     setLoading(true);
     try {
-      setUsers([]);
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select(`
+          *,
+          player_stats (
+            level,
+            total_xp,
+            achievements
+          )
+        `);
+
+      if (profilesError) throw profilesError;
+
+      // Transform profiles to User interface
+      const realUsers: User[] = profiles.map((profile: any) => {
+        const stats = profile.player_stats?.[0] || {};
+        const achievements = stats.achievements || {};
+        const role = achievements.role || 'User';
+        
+        // Determine if admin (this is a simplified check based on client-side logic we saw earlier)
+        // In a real app, this should be a secure check. 
+        // We'll use the "tester" nickname check or email whitelist logic if we had it here,
+        // but for now, let's rely on the role if it's "Admin" or nickname.
+        const isAdmin = role === 'Admin' || profile.nickname === 'tester';
+
+        return {
+          id: profile.id,
+          nickname: profile.nickname || 'Unknown',
+          email: profile.email || 'No Email',
+          created_at: profile.created_at,
+          last_active_at: profile.last_active_at,
+          total_trades: profile.total_trades || 0,
+          total_profit_loss: profile.total_profit_loss || 0,
+          win_rate: profile.win_rate || 0,
+          usdt_balance: 0, // Balance is local-only currently, so we show 0
+          level: stats.level || 1,
+          total_xp: stats.total_xp || 0,
+          is_admin: isAdmin,
+          is_banned: false, // We don't have ban logic in DB yet
+          role: role
+        };
+      });
+
+      setUsers(realUsers);
     } catch (error) {
       console.error('Error fetching users:', error);
       toast.error('Failed to fetch users');
@@ -78,7 +125,8 @@ export const AdminUsers = () => {
     }
   };
 
-  const fetchUserSessions = async () => {
+  const fetchUserSessions = async (userId: string) => {
+    // Mock sessions for now as we don't have a sessions table
     setUserSessions([]);
   };
 
@@ -92,7 +140,7 @@ export const AdminUsers = () => {
     if (!selectedUser || !banReason) return;
 
     try {
-      toast.info('User banning is disabled in simulation mode');
+      toast.info('User banning is disabled (requires backend logic)');
       setShowBanDialog(false);
       setBanReason('');
     } catch (error) {
@@ -103,7 +151,7 @@ export const AdminUsers = () => {
 
   const handleUnbanUser = async (userId: string) => {
     try {
-      toast.info('User unban is disabled in simulation mode');
+      toast.info('User unban is disabled (requires backend logic)');
     } catch (error) {
       console.error('Error unbanning user:', error);
       toast.error('Failed to unban user');
@@ -114,7 +162,7 @@ export const AdminUsers = () => {
     if (!selectedUser) return;
 
     try {
-      toast.info('Account reset is disabled in simulation mode');
+      toast.info('Account reset is disabled (requires backend logic)');
       setShowResetDialog(false);
     } catch (error) {
       console.error('Error resetting account:', error);
@@ -126,8 +174,35 @@ export const AdminUsers = () => {
     if (!selectedUser) return;
 
     try {
-      toast.info('Role changes are disabled in simulation mode');
+      // Fetch current achievements
+      const { data: stats, error: statsError } = await supabase
+        .from('player_stats')
+        .select('achievements')
+        .eq('user_id', selectedUser.id)
+        .single();
+
+      if (statsError) throw statsError;
+
+      let currentAchievements = (stats.achievements as any) || {};
+      
+      // Update role in achievements
+      if (newRole === 'User') {
+        // Remove role property or set to User
+        delete currentAchievements.role;
+      } else {
+        currentAchievements.role = newRole;
+      }
+
+      const { error: updateError } = await supabase
+        .from('player_stats')
+        .update({ achievements: currentAchievements })
+        .eq('user_id', selectedUser.id);
+
+      if (updateError) throw updateError;
+
+      toast.success(`Role updated to ${newRole}`);
       setShowRoleDialog(false);
+      fetchUsers(); // Refresh list
     } catch (error) {
       console.error('Error changing role:', error);
       toast.error('Failed to change role');
@@ -223,10 +298,16 @@ export const AdminUsers = () => {
                         ${(user.total_profit_loss || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                       </TableCell>
                       <TableCell>
-                        <div className="flex gap-1">
+                        <div className="flex gap-1 flex-wrap">
                           {user.is_admin && <Badge className="bg-purple-500">Admin</Badge>}
                           {user.is_banned && <Badge variant="destructive">Banned</Badge>}
-                          {!user.is_admin && !user.is_banned && <Badge variant="secondary">User</Badge>}
+                          {!user.is_admin && !user.is_banned && user.role === 'User' && <Badge variant="secondary">User</Badge>}
+                          {PREMIUM_ROLES.includes(user.role || '') && (
+                            <Badge className="bg-yellow-500/10 text-yellow-500 border-yellow-500/50 shadow-[0_0_10px_rgba(234,179,8,0.2)] animate-pulse">
+                              <Crown className="w-3 h-3 mr-1" />
+                              {user.role}
+                            </Badge>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -234,7 +315,7 @@ export const AdminUsers = () => {
                           <Button size="sm" variant="ghost" onClick={() => handleViewUser(user)}>
                             <Eye className="h-4 w-4" />
                           </Button>
-                          <Button size="sm" variant="ghost" onClick={() => { setSelectedUser(user); setShowRoleDialog(true); }}>
+                          <Button size="sm" variant="ghost" onClick={() => { setSelectedUser(user); setNewRole(user.role || 'User'); setShowRoleDialog(true); }}>
                             <Shield className="h-4 w-4" />
                           </Button>
                           {user.is_banned ? (
@@ -398,14 +479,17 @@ export const AdminUsers = () => {
           </DialogHeader>
           <div>
             <label className="text-sm font-medium">New Role</label>
-            <Select value={newRole} onValueChange={(v) => setNewRole(v as any)}>
+            <Select value={newRole} onValueChange={(v) => setNewRole(v)}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="user">User</SelectItem>
-                <SelectItem value="moderator">Moderator</SelectItem>
-                <SelectItem value="admin">Admin</SelectItem>
+                <SelectItem value="User">User</SelectItem>
+                <SelectItem value="Admin">Admin</SelectItem>
+                <SelectItem value="FinoriPro">FinoriPro</SelectItem>
+                <SelectItem value="FinoriAlpha">FinoriAlpha</SelectItem>
+                <SelectItem value="FinoriUltra">FinoriUltra</SelectItem>
+                <SelectItem value="FinoriFamily">FinoriFamily</SelectItem>
               </SelectContent>
             </Select>
           </div>
