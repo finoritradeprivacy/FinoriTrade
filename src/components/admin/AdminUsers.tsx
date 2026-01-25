@@ -73,38 +73,38 @@ export const AdminUsers = () => {
   const fetchUsers = async () => {
     setLoading(true);
     try {
-      // 1. Fetch profiles
+      // 1. Fetch profiles with related data
       const { data: profiles, error: profilesError } = await supabase
         .from('profiles')
-        .select('*');
+        .select(`
+          *,
+          player_stats (
+            level,
+            total_xp,
+            achievements
+          ),
+          user_balances (
+            usdt_balance
+          )
+        `);
 
       if (profilesError) throw profilesError;
 
-      // 2. Fetch player stats for these profiles
-      const userIds = profiles.map((p: any) => p.id);
-      const { data: statsData, error: statsError } = await supabase
-        .from('player_stats')
-        .select('user_id, level, total_xp, achievements')
-        .in('user_id', userIds);
-
-      if (statsError) throw statsError;
-
-      // Create a map for faster lookup
-      const statsMap = new Map();
-      statsData?.forEach((stat: any) => {
-        statsMap.set(stat.user_id, stat);
-      });
-
       // Transform profiles to User interface
       const realUsers: User[] = profiles.map((profile: any) => {
-        const stats = statsMap.get(profile.id) || {};
+        // Handle potential array or single object response for joined tables
+        const stats = Array.isArray(profile.player_stats) 
+          ? profile.player_stats[0] 
+          : profile.player_stats || {};
+          
+        const balances = Array.isArray(profile.user_balances)
+          ? profile.user_balances[0]
+          : profile.user_balances || {};
+        
         const achievements = stats.achievements || {};
         const role = achievements.role || 'User';
         
-        // Determine if admin (this is a simplified check based on client-side logic we saw earlier)
-        // In a real app, this should be a secure check. 
-        // We'll use the "tester" nickname check or email whitelist logic if we had it here,
-        // but for now, let's rely on the role if it's "Admin" or nickname.
+        // Determine if admin
         const isAdmin = role === 'Admin' || profile.nickname === 'tester';
 
         return {
@@ -116,11 +116,11 @@ export const AdminUsers = () => {
           total_trades: profile.total_trades || 0,
           total_profit_loss: profile.total_profit_loss || 0,
           win_rate: profile.win_rate || 0,
-          usdt_balance: 0, // Balance is local-only currently, so we show 0
+          usdt_balance: balances.usdt_balance || 0,
           level: stats.level || 1,
           total_xp: stats.total_xp || 0,
           is_admin: isAdmin,
-          is_banned: false, // We don't have ban logic in DB yet
+          is_banned: false,
           role: role
         };
       });
