@@ -3,8 +3,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { X, Bell, Check, Trash2 } from 'lucide-react';
+import { X, Check, Trash2, Bell } from 'lucide-react';
 import { format } from 'date-fns';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface Notification {
   id: string;
@@ -22,6 +25,7 @@ interface AdminNotificationsProps {
 }
 
 export const AdminNotifications = ({ onClose, onRead }: AdminNotificationsProps) => {
+  const { user } = useAuth();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -31,64 +35,100 @@ export const AdminNotifications = ({ onClose, onRead }: AdminNotificationsProps)
 
   const fetchNotifications = async () => {
     setLoading(true);
-    // Simulate network delay
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    // Mock data
-    const mockNotifications: Notification[] = [
-      {
-        id: '1',
-        notification_type: 'user_registration',
-        title: 'New User Registration',
-        message: 'User "TraderJoe" has joined the platform.',
-        severity: 'info',
-        is_read: false,
-        created_at: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-      },
-      {
-        id: '2',
-        notification_type: 'system_alert',
-        title: 'High Volatility Detected',
-        message: 'BTC/USDT is experiencing high volatility.',
-        severity: 'warning',
-        is_read: true,
-        created_at: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
-      },
-      {
-        id: '3',
-        notification_type: 'error',
-        title: 'System Alert',
-        message: 'Failed to sync external price feed (simulated).',
-        severity: 'critical',
-        is_read: false,
-        created_at: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
-      }
-    ];
-    
-    setNotifications(mockNotifications);
-    setLoading(false);
-  };
+    try {
+      const { data, error } = await supabase
+        .from('admin_notifications')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-  const handleMarkAsRead = (id: string) => {
-    setNotifications(prev => 
-      prev.map(n => n.id === id ? { ...n, is_read: true } : n)
-    );
-  };
+      if (error) throw error;
 
-  const handleMarkAllAsRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
-    onRead();
-  };
-
-  const handleDelete = (id: string) => {
-    setNotifications(prev => prev.filter(n => n.id !== id));
+      setNotifications(data?.map(n => ({
+        ...n,
+        is_read: n.is_read || false
+      })) || []);
+    } catch (error) {
+      console.error('Error fetching admin notifications:', error);
+      toast.error('Failed to fetch notifications');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const getSeverityColor = (severity: string) => {
     switch (severity) {
       case 'critical': return 'destructive';
-      case 'warning': return 'secondary';
-      default: return 'default';
+      case 'warning': return 'secondary'; // yellow-500 handled in className usually, or use secondary
+      case 'info': return 'default';
+      default: return 'outline';
+    }
+  };
+
+  const handleMarkAsRead = async (id: string) => {
+    if (!user) return;
+    try {
+      const { error } = await supabase
+        .from('admin_notifications')
+        .update({ 
+          is_read: true,
+          read_by: user.id,
+          read_at: new Date().toISOString()
+        })
+        .eq('id', id);
+
+      if (error) throw error;
+
+      setNotifications(prev => 
+        prev.map(n => n.id === id ? { ...n, is_read: true } : n)
+      );
+      onRead(); // Refresh count in parent
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+      toast.error('Failed to update notification');
+    }
+  };
+
+  const handleMarkAllAsRead = async () => {
+    if (!user) return;
+    try {
+      const unreadIds = notifications.filter(n => !n.is_read).map(n => n.id);
+      if (unreadIds.length === 0) return;
+
+      const { error } = await supabase
+        .from('admin_notifications')
+        .update({ 
+          is_read: true,
+          read_by: user.id,
+          read_at: new Date().toISOString()
+        })
+        .in('id', unreadIds);
+
+      if (error) throw error;
+
+      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+      onRead();
+      toast.success('All notifications marked as read');
+    } catch (error) {
+      console.error('Error marking all as read:', error);
+      toast.error('Failed to update notifications');
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('admin_notifications')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      setNotifications(prev => prev.filter(n => n.id !== id));
+      onRead();
+      toast.success('Notification deleted');
+    } catch (error) {
+      console.error('Error deleting notification:', error);
+      toast.error('Failed to delete notification');
     }
   };
 

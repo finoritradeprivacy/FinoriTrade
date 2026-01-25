@@ -10,6 +10,7 @@ import {
   DollarSign, FileText, Megaphone, Wrench, Settings, Bell
 } from "lucide-react";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 // Import admin components
 import { AdminDashboard } from "@/components/admin/AdminDashboard";
@@ -43,8 +44,17 @@ const Admin = () => {
   }, [isAdmin]);
 
   const fetchUnreadNotifications = async () => {
-    // Mock notifications count
-    setUnreadCount(3);
+    try {
+      const { count, error } = await supabase
+        .from('admin_notifications')
+        .select('*', { count: 'exact', head: true })
+        .eq('is_read', false);
+
+      if (error) throw error;
+      setUnreadCount(count || 0);
+    } catch (error) {
+      console.error('Error fetching notification count:', error);
+    }
   };
 
   if (adminLoading || (!isAdmin && !adminLoading)) {

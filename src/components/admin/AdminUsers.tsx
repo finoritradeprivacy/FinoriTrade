@@ -73,22 +73,31 @@ export const AdminUsers = () => {
   const fetchUsers = async () => {
     setLoading(true);
     try {
+      // 1. Fetch profiles
       const { data: profiles, error: profilesError } = await supabase
         .from('profiles')
-        .select(`
-          *,
-          player_stats (
-            level,
-            total_xp,
-            achievements
-          )
-        `);
+        .select('*');
 
       if (profilesError) throw profilesError;
 
+      // 2. Fetch player stats for these profiles
+      const userIds = profiles.map((p: any) => p.id);
+      const { data: statsData, error: statsError } = await supabase
+        .from('player_stats')
+        .select('user_id, level, total_xp, achievements')
+        .in('user_id', userIds);
+
+      if (statsError) throw statsError;
+
+      // Create a map for faster lookup
+      const statsMap = new Map();
+      statsData?.forEach((stat: any) => {
+        statsMap.set(stat.user_id, stat);
+      });
+
       // Transform profiles to User interface
       const realUsers: User[] = profiles.map((profile: any) => {
-        const stats = profile.player_stats?.[0] || {};
+        const stats = statsMap.get(profile.id) || {};
         const achievements = stats.achievements || {};
         const role = achievements.role || 'User';
         
