@@ -9,13 +9,15 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { TrendingUp, TrendingDown, Award, DollarSign, Clock, Target, LogOut, RotateCcw, Trash2, UserPlus, Camera, ArrowLeft, Copy, Check, Pencil, AlertTriangle, Mail } from "lucide-react";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { TrendingUp, TrendingDown, Award, DollarSign, Clock, Target, LogOut, RotateCcw, Trash2, UserPlus, Camera, ArrowLeft, Copy, Check, Pencil, AlertTriangle, Mail, Gift, Crown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import Portfolio from "@/components/trading/Portfolio";
 import { toast as sonnerToast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 interface ProfileData {
   nickname: string;
@@ -28,7 +30,10 @@ interface ProfileData {
   win_rate: number;
   total_profit_loss: number;
   usdt_balance: number;
+  role?: string;
 }
+
+const PREMIUM_ROLES = ["FinoriPro", "FinoriAlpha", "FinoriUltra", "FinoriFamily", "FinoriGold"];
 
 const Profile = () => {
   const { user, signOut, resendVerificationEmail } = useAuth();
@@ -47,6 +52,11 @@ const Profile = () => {
   const [copied, setCopied] = useState(false);
   const [emailVerified, setEmailVerified] = useState(true);
   const [resendingEmail, setResendingEmail] = useState(false);
+  
+  // Promo code state
+  const [promoCode, setPromoCode] = useState("");
+  const [showSelectionDialog, setShowSelectionDialog] = useState(false);
+  const [selectedRole, setSelectedRole] = useState("FinoriPro");
 
   const fetchProfileData = useCallback(async () => {
     if (!user) return;
@@ -74,6 +84,23 @@ const Profile = () => {
       0,
       Math.floor((Date.now() - firstTradeTime) / 1000)
     );
+
+    // Fetch role from Supabase
+    let role = null;
+    try {
+      const { data: stats } = await supabase
+        .from('player_stats')
+        .select('achievements')
+        .eq('user_id', user.id)
+        .single();
+      
+      if (stats && stats.achievements) {
+        role = (stats.achievements as any).role;
+      }
+    } catch (err) {
+      console.error("Error fetching role:", err);
+    }
+
     setProfileData({
       nickname,
       email,
@@ -84,7 +111,8 @@ const Profile = () => {
       total_trades: totalTrades,
       win_rate: 0,
       total_profit_loss: totalProfitLoss,
-      usdt_balance: usdtBalance
+      usdt_balance: usdtBalance,
+      role: role || undefined
     });
     setLoading(false);
   }, [user, usdtBalance, holdings, trades, prices, avatarUrl]);
@@ -288,6 +316,52 @@ const Profile = () => {
   const xpProgress = calculateXpForNextLevel();
   const isProfitable = profileData.total_profit_loss >= 0;
 
+  const handleRedeemCode = () => {
+    if (promoCode.trim() === "199298AE402N") {
+      setShowSelectionDialog(true);
+      setPromoCode(""); // Clear code
+    } else {
+      sonnerToast.error("Invalid promo code");
+    }
+  };
+
+  const handleApplyRole = async () => {
+    if (!user || !selectedRole) return;
+
+    try {
+      // Get current achievements
+      const { data: stats } = await supabase
+        .from('player_stats')
+        .select('achievements')
+        .eq('user_id', user.id)
+        .single();
+
+      let currentAchievements = (stats?.achievements as any) || {};
+      if (Array.isArray(currentAchievements)) {
+         // Convert array to object if it was initialized as empty array
+         currentAchievements = {};
+      }
+      
+      // Update role
+      currentAchievements.role = selectedRole;
+
+      // Save to Supabase
+      const { error } = await supabase
+        .from('player_stats')
+        .update({ achievements: currentAchievements })
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+
+      sonnerToast.success(`Congratulations! You are now ${selectedRole}`);
+      setShowSelectionDialog(false);
+      fetchProfileData(); // Refresh data
+    } catch (error) {
+      console.error("Error applying role:", error);
+      sonnerToast.error("Failed to apply role");
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <div className="container mx-auto px-4 py-8 max-w-6xl">
@@ -350,6 +424,12 @@ const Profile = () => {
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-2">
                 <h1 className="text-3xl font-bold">{profileData.nickname}</h1>
+                {PREMIUM_ROLES.includes(profileData.role || '') && (
+                  <Badge className="bg-yellow-500/10 text-yellow-500 border-yellow-500/50 shadow-[0_0_10px_rgba(234,179,8,0.2)] animate-pulse">
+                    <Crown className="w-3 h-3 mr-1" />
+                    {profileData.role}
+                  </Badge>
+                )}
                 <Badge variant="secondary" className="text-sm">
                   Level {profileData.level}
                 </Badge>
@@ -491,6 +571,33 @@ const Profile = () => {
               {copied ? <Check className="h-4 w-4 mr-2" /> : <Copy className="h-4 w-4 mr-2" />}
               {copied ? "Copied!" : "Copy Link"}
             </Button>
+          </div>
+        </Card>
+
+        {/* Redeem Code */}
+        <Card className="p-6 mb-6 bg-gradient-to-r from-yellow-500/20 to-yellow-600/10 border-yellow-500/30">
+          <div className="flex flex-col gap-4">
+             <div className="flex items-center gap-2">
+                <Gift className="h-6 w-6 text-yellow-500" />
+                <h3 className="text-xl font-bold text-yellow-500">Redeem Promo Code</h3>
+             </div>
+             <p className="text-muted-foreground">
+                Enter your exclusive promo code to unlock premium status and rewards.
+             </p>
+             <div className="flex gap-2">
+                <Input 
+                  placeholder="Enter code..." 
+                  value={promoCode}
+                  onChange={(e) => setPromoCode(e.target.value)}
+                  className="bg-background/50 border-yellow-500/30 focus-visible:ring-yellow-500"
+                />
+                <Button 
+                  onClick={handleRedeemCode}
+                  className="bg-yellow-500 hover:bg-yellow-600 text-black font-bold"
+                >
+                  Redeem
+                </Button>
+             </div>
           </div>
         </Card>
 
@@ -645,6 +752,43 @@ const Profile = () => {
               Save Changes
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Role Selection Dialog */}
+      <Dialog open={showSelectionDialog} onOpenChange={setShowSelectionDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Select Your Status</DialogTitle>
+            <DialogDescription>
+              Code accepted! Choose your new premium status.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <RadioGroup value={selectedRole} onValueChange={setSelectedRole}>
+              <div className="flex items-center space-x-2 mb-2">
+                <RadioGroupItem value="FinoriPro" id="r1" />
+                <Label htmlFor="r1" className="font-medium text-blue-500">FinoriPro</Label>
+              </div>
+              <div className="flex items-center space-x-2 mb-2">
+                <RadioGroupItem value="FinoriGold" id="r2" />
+                <Label htmlFor="r2" className="font-medium text-yellow-500">FinoriGold</Label>
+              </div>
+              <div className="flex items-center space-x-2 mb-2">
+                <RadioGroupItem value="FinoriUltra" id="r3" />
+                <Label htmlFor="r3" className="font-medium text-purple-500">FinoriUltra</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="FinoriFamily" id="r4" />
+                <Label htmlFor="r4" className="font-medium text-green-500">FinoriFamily</Label>
+              </div>
+            </RadioGroup>
+          </div>
+          <DialogFooter>
+            <Button type="button" onClick={handleApplyRole}>
+              Apply Status
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
