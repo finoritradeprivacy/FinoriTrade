@@ -5,8 +5,21 @@ import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { TrendingUp, TrendingDown, Award, DollarSign, Crown } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { TrendingUp, TrendingDown, Award, DollarSign, Crown, Gift } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 interface PlayerData {
   nickname: string;
@@ -21,7 +34,7 @@ interface PlayerData {
   role?: string;
 }
 
-const PREMIUM_ROLES = ["FinoriPro", "FinoriAlpha", "FinoriUltra", "FinoriFamily"];
+const PREMIUM_ROLES = ["FinoriPro", "FinoriAlpha", "FinoriUltra", "FinoriFamily", "FinoriGold"];
 
 const PlayerProfile = () => {
   const { user } = useAuth();
@@ -29,6 +42,12 @@ const PlayerProfile = () => {
   const [playerData, setPlayerData] = useState<PlayerData | null>(null);
   const [loading, setLoading] = useState(true);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  
+  // Promo code state
+  const [showPromoDialog, setShowPromoDialog] = useState(false);
+  const [promoCode, setPromoCode] = useState("");
+  const [showSelectionDialog, setShowSelectionDialog] = useState(false);
+  const [selectedRole, setSelectedRole] = useState("FinoriPro");
 
   useEffect(() => {
     if (!user || typeof window === "undefined") return;
@@ -156,6 +175,55 @@ const PlayerProfile = () => {
     return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
   };
 
+  const handleRedeemCode = () => {
+    if (promoCode.trim() === "199298AE402N") {
+      setShowPromoDialog(false);
+      setShowSelectionDialog(true);
+      setPromoCode(""); // Clear code
+    } else {
+      toast.error("Invalid promo code");
+    }
+  };
+
+  const handleApplyRole = async () => {
+    if (!user || !selectedRole) return;
+
+    try {
+      // Get current achievements
+      const { data: stats } = await supabase
+        .from('player_stats')
+        .select('achievements')
+        .eq('user_id', user.id)
+        .single();
+
+      let currentAchievements = (stats?.achievements as any) || {};
+      if (Array.isArray(currentAchievements)) {
+         // Convert array to object if it was initialized as empty array
+         currentAchievements = {};
+      }
+      
+      // Update role
+      currentAchievements.role = selectedRole;
+
+      // Save to Supabase
+      const { error } = await supabase
+        .from('player_stats')
+        .update({ achievements: currentAchievements })
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+
+      // Update local state
+      setPlayerData(prev => prev ? ({ ...prev, role: selectedRole }) : null);
+      
+      toast.success(`Congratulations! You are now ${selectedRole}`);
+      setShowSelectionDialog(false);
+    } catch (error) {
+      console.error("Error applying role:", error);
+      toast.error("Failed to apply role");
+    }
+  };
+
   return (
     <Card className="p-4 space-y-4">
       <div className="flex items-start gap-3">
@@ -203,6 +271,16 @@ const PlayerProfile = () => {
             </div>
             <Progress value={xpProgress} className="h-1.5" />
           </div>
+
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            className="mt-2 h-6 text-xs px-2 text-muted-foreground hover:text-primary"
+            onClick={() => setShowPromoDialog(true)}
+          >
+            <Gift className="w-3 h-3 mr-1" />
+            Redeem Code
+          </Button>
         </div>
       </div>
 
@@ -278,6 +356,76 @@ const PlayerProfile = () => {
           </div>
         </div>
       )}
+
+      {/* Promo Code Dialog */}
+      <Dialog open={showPromoDialog} onOpenChange={setShowPromoDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Redeem Promo Code</DialogTitle>
+            <DialogDescription>
+              Enter your promo code to unlock exclusive rewards.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center space-x-2">
+            <div className="grid flex-1 gap-2">
+              <Label htmlFor="promo-code" className="sr-only">
+                Promo Code
+              </Label>
+              <Input
+                id="promo-code"
+                placeholder="Enter code..."
+                value={promoCode}
+                onChange={(e) => setPromoCode(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter className="sm:justify-start">
+            <Button type="button" variant="secondary" onClick={() => setShowPromoDialog(false)}>
+              Close
+            </Button>
+            <Button type="button" onClick={handleRedeemCode}>
+              Redeem
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Role Selection Dialog */}
+      <Dialog open={showSelectionDialog} onOpenChange={setShowSelectionDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Select Your Status</DialogTitle>
+            <DialogDescription>
+              Code accepted! Choose your new premium status.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <RadioGroup value={selectedRole} onValueChange={setSelectedRole}>
+              <div className="flex items-center space-x-2 mb-2">
+                <RadioGroupItem value="FinoriPro" id="r1" />
+                <Label htmlFor="r1" className="font-medium text-blue-500">FinoriPro</Label>
+              </div>
+              <div className="flex items-center space-x-2 mb-2">
+                <RadioGroupItem value="FinoriGold" id="r2" />
+                <Label htmlFor="r2" className="font-medium text-yellow-500">FinoriGold</Label>
+              </div>
+              <div className="flex items-center space-x-2 mb-2">
+                <RadioGroupItem value="FinoriUltra" id="r3" />
+                <Label htmlFor="r3" className="font-medium text-purple-500">FinoriUltra</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="FinoriFamily" id="r4" />
+                <Label htmlFor="r4" className="font-medium text-green-500">FinoriFamily</Label>
+              </div>
+            </RadioGroup>
+          </div>
+          <DialogFooter>
+            <Button type="button" onClick={handleApplyRole}>
+              Apply Status
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 };

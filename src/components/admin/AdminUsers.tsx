@@ -48,7 +48,7 @@ interface UserSession {
   is_active: boolean;
 }
 
-const PREMIUM_ROLES = ["FinoriPro", "FinoriAlpha", "FinoriUltra", "FinoriFamily"];
+const PREMIUM_ROLES = ["FinoriPro", "FinoriAlpha", "FinoriUltra", "FinoriFamily", "FinoriGold"];
 
 export const AdminUsers = () => {
   const [users, setUsers] = useState<User[]>([]);
