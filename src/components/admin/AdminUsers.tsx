@@ -145,6 +145,26 @@ export const AdminUsers = () => {
       });
 
       setUsers(realUsers);
+      
+      // Proactive check for backend permissions
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user && realUsers.length === 1 && realUsers[0].id === user.id) {
+        // User only sees themselves. Check if they are actually an admin in backend.
+        const { data: backendRoles } = await supabase
+          .from('user_roles')
+          .select('role')
+          .eq('user_id', user.id)
+          .eq('role', 'admin');
+          
+        if (!backendRoles || backendRoles.length === 0) {
+          toast.error("Warning: You are missing backend Admin permissions!", {
+            description: "You see only yourself because database policies block you. Please run the SQL script to fix permissions.",
+            duration: 10000,
+          });
+          console.error("DEBUG: User ID for SQL script:", user.id);
+        }
+      }
+
     } catch (error) {
       console.error('Error fetching users:', error);
       toast.error('Failed to fetch users');
