@@ -83,13 +83,15 @@ export const AdminUsers = () => {
       const userIds = profiles.map(p => p.id);
 
       // 2. Fetch player stats separately
+      console.log(`Fetching stats for ${userIds.length} users`);
       const { data: statsData, error: statsError } = await supabase
         .from('player_stats')
         .select('user_id, level, total_xp, achievements')
         .in('user_id', userIds);
 
       if (statsError) {
-        console.warn('Error fetching stats:', statsError);
+        console.error('Error fetching stats:', statsError);
+        toast.error(`Stats error: ${statsError.message}`);
       }
 
       // 3. Fetch balances separately
@@ -99,7 +101,7 @@ export const AdminUsers = () => {
         .in('user_id', userIds);
 
       if (balancesError) {
-        console.warn('Error fetching balances:', balancesError);
+        console.error('Error fetching balances:', balancesError);
       }
 
       // Create maps for faster lookup
