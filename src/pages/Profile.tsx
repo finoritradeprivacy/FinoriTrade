@@ -474,7 +474,7 @@ const Profile = () => {
         </Card>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
           <Card className="p-4">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-primary/10 rounded-lg">
@@ -515,18 +515,6 @@ const Profile = () => {
               <div>
                 <p className="text-sm text-muted-foreground">Win Rate</p>
                 <p className="text-2xl font-bold">{profileData.win_rate.toFixed(1)}%</p>
-              </div>
-            </div>
-          </Card>
-
-          <Card className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-primary/10 rounded-lg">
-                <Clock className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Time Played</p>
-                <p className="text-2xl font-bold">{formatPlayedTime(profileData.played_time_seconds)}</p>
               </div>
             </div>
           </Card>
