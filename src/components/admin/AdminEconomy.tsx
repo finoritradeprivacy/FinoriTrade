@@ -18,6 +18,7 @@ import {
   DollarSign, Settings, Trophy, RefreshCw, Plus, Minus, Zap, TrendingUp, Percent
 } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
+import { supabase } from '@/integrations/supabase/client';
 
 interface TradingSetting {
   id: string;
@@ -69,7 +70,71 @@ export const AdminEconomy = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // Mock trading settings
+      // Fetch profiles
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('*');
+
+      if (profilesError) throw profilesError;
+
+      const userIds = profiles.map(p => p.id);
+
+      // Fetch player stats
+      const { data: statsData, error: statsError } = await supabase
+        .from('player_stats')
+        .select('user_id, level, total_xp, total_profit_loss, total_trades, win_rate')
+        .in('user_id', userIds);
+
+      if (statsError) console.warn('Error fetching stats:', statsError);
+
+      // Fetch balances
+      const { data: balancesData, error: balancesError } = await supabase
+        .from('user_balances')
+        .select('user_id, usdt_balance')
+        .in('user_id', userIds);
+
+      if (balancesError) console.warn('Error fetching balances:', balancesError);
+
+      // Create maps
+      const statsMap = new Map();
+      statsData?.forEach((stat: any) => statsMap.set(stat.user_id, stat));
+
+      const balancesMap = new Map();
+      balancesData?.forEach((bal: any) => balancesMap.set(bal.user_id, bal));
+
+      // Build real users list
+      const realUsers = profiles.map((profile: any) => {
+        const stats = statsMap.get(profile.id) || {};
+        const balances = balancesMap.get(profile.id) || {};
+        
+        return {
+          id: profile.id,
+          nickname: profile.nickname || 'Unknown',
+          balance: balances.usdt_balance || 0,
+          level: stats.level || 1,
+          total_profit_loss: stats.total_profit_loss || 0,
+          total_trades: stats.total_trades || 0,
+          win_rate: stats.win_rate || 0
+        };
+      });
+
+      setUsers(realUsers);
+
+      // Top traders derived from real users
+      const topTradersList: TopTrader[] = realUsers
+        .sort((a, b) => b.total_profit_loss - a.total_profit_loss)
+        .slice(0, 5)
+        .map(u => ({
+          id: u.id,
+          nickname: u.nickname,
+          total_profit_loss: u.total_profit_loss,
+          total_trades: u.total_trades,
+          win_rate: u.win_rate,
+          level: u.level
+        }));
+      setTopTraders(topTradersList);
+
+      // Mock trading settings (keep as mock for now unless table exists)
       const mockSettings: TradingSetting[] = [
         { id: '1', setting_key: 'trading_enabled', setting_value: true, description: 'Enable/Disable Trading' },
         { id: '2', setting_key: 'max_leverage', setting_value: 100, description: 'Maximum Leverage' },
@@ -77,29 +142,13 @@ export const AdminEconomy = () => {
       ];
       setSettings(mockSettings);
 
-      // Mock stock assets
+      // Mock stock assets (keep as mock for now)
       const mockStocks: StockAsset[] = [
         { id: 'AAPL', symbol: 'AAPL', name: 'Apple Inc.', dividend_yield: 0.5, current_price: 150 },
         { id: 'MSFT', symbol: 'MSFT', name: 'Microsoft Corp.', dividend_yield: 0.8, current_price: 300 },
         { id: 'GOOGL', symbol: 'GOOGL', name: 'Alphabet Inc.', dividend_yield: 0, current_price: 2800 },
       ];
       setStockAssets(mockStocks);
-
-      // Mock top traders
-      const mockTraders: TopTrader[] = [
-        { id: 't1', nickname: 'CryptoKing', total_profit_loss: 50000, total_trades: 120, win_rate: 65, level: 10 },
-        { id: 't2', nickname: 'HodlerPro', total_profit_loss: 25000, total_trades: 80, win_rate: 55, level: 8 },
-        { id: user?.id || 'local', nickname: 'You', total_profit_loss: 0, total_trades: 0, win_rate: 0, level: 1 },
-      ];
-      setTopTraders(mockTraders);
-
-      // Mock users list
-      const mockUsers = [
-        { id: user?.id || 'local', nickname: 'You', balance: usdtBalance, level: 1 },
-        { id: 'u2', nickname: 'Alice', balance: 5000, level: 2 },
-        { id: 'u3', nickname: 'Bob', balance: 1000, level: 1 },
-      ];
-      setUsers(mockUsers);
 
     } catch (error) {
       console.error('Error fetching economy data:', error);
@@ -125,15 +174,26 @@ export const AdminEconomy = () => {
     try {
       const amount = parseFloat(modifyAmount);
       const change = modifyType === 'add' ? amount : -amount;
+      const userToUpdate = users.find(u => u.id === selectedUserId);
+      
+      if (!userToUpdate) return;
 
-      if (selectedUserId === user?.id || selectedUserId === 'local') {
-        modifyBalance(change);
-        toast.success(`Balance ${modifyType === 'add' ? 'increased' : 'decreased'} by $${amount.toLocaleString()}`);
-      } else {
-        toast.success(`Balance modified for user ${selectedUserId} (Simulated)`);
-        setUsers(prev => prev.map(u => u.id === selectedUserId ? { ...u, balance: Math.max(0, u.balance + change) } : u));
-      }
+      const newBalance = Math.max(0, userToUpdate.balance + change);
 
+      // Update in Supabase
+      const { error } = await supabase
+        .from('user_balances')
+        .update({ usdt_balance: newBalance })
+        .eq('user_id', selectedUserId);
+
+      if (error) throw error;
+
+      // Update local state
+      setUsers(prev => prev.map(u => 
+        u.id === selectedUserId ? { ...u, balance: newBalance } : u
+      ));
+
+      toast.success(`Balance ${modifyType === 'add' ? 'increased' : 'decreased'} by $${amount.toLocaleString()}`);
       setShowModifyBalanceDialog(false);
       setModifyAmount('');
     } catch (error) {

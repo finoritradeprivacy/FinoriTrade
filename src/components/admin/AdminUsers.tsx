@@ -219,12 +219,29 @@ export const AdminUsers = () => {
         currentAchievements.role = newRole;
       }
 
+      // 1. Update role in player_stats achievements (for UI badge)
       const { error: updateError } = await supabase
         .from('player_stats')
         .update({ achievements: currentAchievements })
         .eq('user_id', selectedUser.id);
 
       if (updateError) throw updateError;
+
+      // 2. Update role in user_roles table (for real backend permissions)
+      // First, remove existing admin role if switching to User
+      if (newRole === 'User') {
+         await supabase
+          .from('user_roles')
+          .delete()
+          .eq('user_id', selectedUser.id)
+          .eq('role', 'admin');
+      } 
+      // If switching TO Admin, insert into user_roles
+      else if (newRole === 'Admin') {
+         await supabase
+          .from('user_roles')
+          .upsert({ user_id: selectedUser.id, role: 'admin' }, { onConflict: 'user_id, role' });
+      }
 
       toast.success(`Role updated to ${newRole}`);
       setShowRoleDialog(false);
