@@ -8,6 +8,25 @@ import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import type { Database } from '@/integrations/supabase/types';
 
+const safeSaveCandles = (key: string, data: any[]) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(data));
+  } catch (e) {
+    console.warn('LocalStorage quota exceeded. Clearing old candle cache...');
+    try {
+      // Clear all candle keys except the current one
+      Object.keys(localStorage).forEach(k => {
+        if (k.startsWith('candles_') && k !== key) {
+          localStorage.removeItem(k);
+        }
+      });
+      localStorage.setItem(key, JSON.stringify(data));
+    } catch (retryError) {
+      console.error('Failed to save candles even after cleanup', retryError);
+    }
+  }
+};
+
 interface Asset {
   id: string;
   symbol: string;
@@ -493,7 +512,7 @@ export const TradingChart = ({
         setLastCandle(extended[extended.length - 1] || null);
         const recentFromExtended = extended.slice(-5).map(c => Number(c.close));
         liveRecentClosesRef.current[cacheKey] = recentFromExtended;
-        localStorage.setItem(`candles_${cacheKey}`, JSON.stringify(extended));
+        safeSaveCandles(`candles_${cacheKey}`, extended);
 
         if (chartRef.current) {
           chartRef.current.timeScale().fitContent();
@@ -567,7 +586,7 @@ export const TradingChart = ({
       setLastCandle(chartData[chartData.length - 1] || null);
       const recentFromGenerated = chartData.slice(-5).map(c => Number(c.close));
       liveRecentClosesRef.current[cacheKey] = recentFromGenerated;
-      localStorage.setItem(`candles_${cacheKey}`, JSON.stringify(chartData));
+      safeSaveCandles(`candles_${cacheKey}`, chartData);
 
       if (chartRef.current) {
         chartRef.current.timeScale().fitContent();
@@ -680,7 +699,7 @@ export const TradingChart = ({
           }
         }
         candleCacheRef.current[key] = updated;
-        localStorage.setItem(`candles_${key}`, JSON.stringify(updated));
+        safeSaveCandles(`candles_${key}`, updated);
       }
       return validatedNext;
     });
