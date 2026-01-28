@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { TrendingUp, TrendingDown, Award, DollarSign, Clock, Target, LogOut, RotateCcw, Trash2, UserPlus, Camera, ArrowLeft, Copy, Check, Pencil, AlertTriangle, Mail, Gift, Crown } from "lucide-react";
+import { TrendingUp, TrendingDown, Award, DollarSign, Clock, Target, LogOut, RotateCcw, Trash2, UserPlus, Camera, ArrowLeft, Copy, Check, Pencil, AlertTriangle, Mail, Gift, Crown, Share2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import Portfolio from "@/components/trading/Portfolio";
 import { toast as sonnerToast } from "sonner";
@@ -38,6 +38,8 @@ const PREMIUM_ROLES = ["FinoriPro", "FinoriAlpha", "FinoriUltra", "FinoriFamily"
 import { PremiumLeaderboard } from "@/components/trading/PremiumLeaderboard";
 import { AdBanner } from "@/components/ui/AdBanner";
 
+import { ShareableStatsCard } from "@/components/profile/ShareableStatsCard";
+
 const Profile = () => {
   const { user, signOut, resendVerificationEmail } = useAuth();
   const { usdtBalance, holdings, trades, prices, resetAll, grantReferralReward } = useSimTrade();
@@ -49,6 +51,7 @@ const Profile = () => {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showAvatarDialog, setShowAvatarDialog] = useState(false);
   const [showEditProfileDialog, setShowEditProfileDialog] = useState(false);
+  const [showShareDialog, setShowShareDialog] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState("");
   const [editNickname, setEditNickname] = useState("");
   const [editEmail, setEditEmail] = useState("");
@@ -527,20 +530,24 @@ const Profile = () => {
               </div>
             </div>
 
-            <div className="flex flex-col gap-2">
-              <Button variant="outline" className="w-full" onClick={() => {
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" className="gap-2 flex-1 md:flex-none" onClick={() => setShowShareDialog(true)}>
+                <Share2 className="h-4 w-4" />
+                Share
+              </Button>
+              <Button variant="outline" className="flex-1 md:flex-none" onClick={() => {
                 setEditNickname(profileData.nickname);
                 setEditEmail(profileData.email);
                 setShowEditProfileDialog(true);
               }}>
                 <Pencil className="h-4 w-4 mr-2" />
-                Edit Profile
+                Edit
               </Button>
-              <Button variant="outline" className="w-full" onClick={() => setShowAvatarDialog(true)}>
+              <Button variant="outline" className="flex-1 md:flex-none" onClick={() => setShowAvatarDialog(true)}>
                 <Camera className="h-4 w-4 mr-2" />
-                Change Avatar
+                Avatar
               </Button>
-              <Button variant="outline" className="w-full" onClick={() => signOut()}>
+              <Button variant="outline" className="flex-1 md:flex-none" onClick={() => signOut()}>
                 <LogOut className="h-4 w-4 mr-2" />
                 Log Out
               </Button>
@@ -787,6 +794,23 @@ const Profile = () => {
               Save
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Share Stats Dialog */}
+      <Dialog open={showShareDialog} onOpenChange={setShowShareDialog}>
+        <DialogContent className="bg-transparent border-none shadow-none p-0 max-w-fit sm:max-w-fit">
+          {profileData && (
+            <ShareableStatsCard data={{
+              nickname: profileData.nickname,
+              avatar_url: profileData.avatar_url,
+              role: profileData.role,
+              total_profit_loss: profileData.total_profit_loss,
+              win_rate: profileData.win_rate,
+              total_trades: profileData.total_trades,
+              level: profileData.level
+            }} />
+          )}
         </DialogContent>
       </Dialog>
 
