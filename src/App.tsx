@@ -8,6 +8,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
 import { SimTradeProvider } from "./contexts/SimTradeContext";
 import { SecurityProvider } from "./components/SecurityProvider";
+import { SmartNotificationManager } from "./components/notifications/SmartNotificationManager";
 import Auth from "./pages/Auth";
 import Trade from "./pages/Trade";
 import Profile from "./pages/Profile";
@@ -30,6 +31,7 @@ const App = () => (
         <AuthProvider>
           <SimTradeProvider>
             <SecurityProvider>
+              <SmartNotificationManager />
               <Routes>
                 <Route path="/" element={<Auth />} />
                 <Route path="/auth" element={<Auth />} />

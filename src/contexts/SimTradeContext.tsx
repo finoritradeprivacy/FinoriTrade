@@ -1,4 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 import { ASSETS } from "@/data/assets";
 
 type Side = "buy" | "sell";
@@ -112,53 +114,86 @@ const TRACKED_CRYPTO = new Set(ASSETS.filter(a => a.category === "crypto").map(a
 const TRACKED_STOCKS = ASSETS.filter(a => a.category === "stocks").map(a => a.symbol);
 const TRACKED_FOREX = ASSETS.filter(a => a.category === "forex").map(a => a.symbol);
 
-function loadState(): SimTradeState {
-  const raw = localStorage.getItem("simtrade_state");
-  if (raw) {
-    try {
-      const parsed = JSON.parse(raw);
-      return {
-        usdtBalance: parsed.usdtBalance ?? DEFAULT_BALANCE,
-        holdings: parsed.holdings ?? {},
-        orders: parsed.orders ?? [],
-        trades: parsed.trades ?? [],
-        prices: {}, // Prices are volatile, don't load them
-        alerts: parsed.alerts ?? [],
-        timeOnSite: parsed.timeOnSite ?? 0,
-        notifications: parsed.notifications ?? [],
-      };
-    } catch {
-      // ignore
+const DEFAULT_STATE: SimTradeState = {
+  usdtBalance: DEFAULT_BALANCE,
+  holdings: {},
+  orders: [],
+  trades: [],
+  prices: {},
+  alerts: [],
+  timeOnSite: 0,
+  notifications: [],
+};
+
+function loadState(userId: string): SimTradeState {
+  // If userId is provided, try specific key first
+  if (userId) {
+    const userKey = `simtrade_state_${userId}`;
+    const userRaw = localStorage.getItem(userKey);
+    if (userRaw) {
+      return parseState(userRaw);
     }
+    
+    // Fallback: Try legacy key and migrate if it exists
+    // But only if we think this might be the same user (heuristic)
+    // For now, let's assume if no user-specific data exists, we try to adopt legacy data
+    const legacyRaw = localStorage.getItem("simtrade_state");
+    if (legacyRaw) {
+      return parseState(legacyRaw);
+    }
+  } else {
+    // Guest mode
+    const raw = localStorage.getItem("simtrade_state");
+    if (raw) return parseState(raw);
   }
-  return {
-    usdtBalance: DEFAULT_BALANCE,
-    holdings: {},
-    orders: [],
-    trades: [],
-    prices: {},
-    alerts: [],
-    timeOnSite: 0,
-    notifications: [],
-  };
+
+  return DEFAULT_STATE;
 }
 
-function saveState(state: SimTradeState) {
+function parseState(raw: string): SimTradeState {
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      usdtBalance: parsed.usdtBalance ?? DEFAULT_BALANCE,
+      holdings: parsed.holdings ?? {},
+      orders: parsed.orders ?? [],
+      trades: parsed.trades ?? [],
+      prices: {},
+      alerts: parsed.alerts ?? [],
+      timeOnSite: parsed.timeOnSite ?? 0,
+      notifications: parsed.notifications ?? [],
+    };
+  } catch {
+    return DEFAULT_STATE;
+  }
+}
+
+function saveState(state: SimTradeState, userId: string) {
   const toSave = { ...state, prices: {} };
-  localStorage.setItem("simtrade_state", JSON.stringify(toSave));
+  const key = userId ? `simtrade_state_${userId}` : "simtrade_state";
+  localStorage.setItem(key, JSON.stringify(toSave));
 }
 
 export function SimTradeProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<SimTradeState>(loadState);
+  const { user } = useAuth();
+  const [state, setState] = useState<SimTradeState>(DEFAULT_STATE);
   const [priceFeedPaused, setPriceFeedPausedState] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   
   // Simulation trends for smoother price movement
   const trendsRef = useRef<Record<string, number>>({});
 
+  // Load state when user changes
   useEffect(() => {
-    saveState(state);
-  }, [state]);
+    // If user is loading (undefined), we might want to wait? 
+    // But useAuth usually provides user or null.
+    const userId = user?.id || "";
+    setState(loadState(userId));
+  }, [user]);
+
+  useEffect(() => {
+    saveState(state, user?.id || "");
+  }, [state, user]);
 
   // Time on Site Tracking
   useEffect(() => {
@@ -328,6 +363,14 @@ export function SimTradeProvider({ children }: { children: React.ReactNode }) {
         createdAt: Date.now(),
         filledAt: Date.now(),
       };
+      
+      addNotification({
+        notification_type: "trade_status",
+        title: "Order Filled",
+        message: `Your ${side.toUpperCase()} order on ${symbol} was filled at ${price.toLocaleString()}.`,
+        metadata: { orderId: order.id, price, symbol, side }
+      });
+
       setState(prev => ({
         ...prev,
         usdtBalance: prev.usdtBalance - cost,
@@ -476,6 +519,42 @@ export function SimTradeProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(interval);
   }, []);
 
+  // Monitor filled orders for notifications
+  const lastFilledOrderIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    // Initialize ref on first load with existing filled orders to avoid spamming
+    if (lastFilledOrderIdsRef.current.size === 0 && state.orders.length > 0) {
+      state.orders.forEach(o => {
+        if (o.status === "filled") {
+          lastFilledOrderIdsRef.current.add(o.id);
+        }
+      });
+      return;
+    }
+
+    state.orders.forEach(o => {
+      if (o.status === "filled" && !lastFilledOrderIdsRef.current.has(o.id)) {
+        lastFilledOrderIdsRef.current.add(o.id);
+
+        // Avoid notification for market orders that are filled immediately and already notified
+        if (o.type !== "market") {
+          const isStop = o.type === "stop";
+          const execPrice = o.price || 0;
+
+          addNotification({
+            notification_type: "trade_status",
+            title: isStop ? "Stop-loss Triggered" : "Limit Order Filled",
+            message: isStop
+              ? `Stop-loss triggered on ${o.symbol}. Executed at ${execPrice.toLocaleString()}.`
+              : `Your LIMIT ${o.side.toUpperCase()} order on ${o.symbol} was filled at ${execPrice.toLocaleString()}.`,
+            metadata: { orderId: o.id, price: execPrice, symbol: o.symbol, side: o.side },
+          });
+        }
+      }
+    });
+  }, [state.orders]);
+
   const cancelOrder = (orderId: string) => {
     setState(prev => ({ ...prev, orders: prev.orders.map(o => (o.id === orderId && o.status === "pending" ? { ...o, status: "cancelled" } : o)) }));
   };
@@ -550,7 +629,23 @@ export function SimTradeProvider({ children }: { children: React.ReactNode }) {
     }));
   };
 
-  const addNotification = (input: Omit<AppNotification, "id" | "created_at" | "is_read">) => {
+  const addNotification = async (input: Omit<AppNotification, "id" | "created_at" | "is_read">) => {
+    // Sync to Supabase if user is logged in
+    if (user) {
+      try {
+        await supabase.from('user_notifications').insert({
+          user_id: user.id,
+          notification_type: input.notification_type,
+          title: input.title,
+          message: input.message,
+          metadata: input.metadata || {}
+        });
+      } catch (err) {
+        console.error("Failed to add notification to Supabase", err);
+      }
+    }
+
+    // Keep local state update for compatibility/fallback
     const now = new Date().toISOString();
     const id = `N${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const notification: AppNotification = {

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Bell, ChevronDown, ChevronUp } from "lucide-react";
+import { Bell, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -9,13 +9,13 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
-import { useSimTrade } from "@/contexts/SimTradeContext";
+import { useSmartNotifications } from "@/hooks/useSmartNotifications";
 import { formatDistanceToNow } from "date-fns";
 import { useSoundAlerts } from "@/hooks/useSoundAlerts";
 
 export const UserNotifications = () => {
   const { user } = useAuth();
-  const { notifications, markNotificationRead, markAllNotificationsRead } = useSimTrade();
+  const { notifications, markAsRead, markAllAsRead, deleteNotification } = useSmartNotifications();
   const unreadCount = notifications.filter(n => !n.is_read).length;
   const [isOpen, setIsOpen] = useState(false);
   const [animatingBell, setAnimatingBell] = useState(false);
@@ -113,7 +113,7 @@ export const UserNotifications = () => {
               variant="ghost"
               size="sm"
               className="text-xs h-7"
-              onClick={markAllNotificationsRead}
+              onClick={markAllAsRead}
             >
               Mark all read
             </Button>
@@ -129,16 +129,18 @@ export const UserNotifications = () => {
               {notifications.map((notification) => {
                 const isDividend = notification.notification_type === "dividend";
                 const isExpanded = expandedNotifications.has(notification.id);
-                const dividendAssets = notification.metadata?.assets;
+                // Cast metadata to access assets safely
+                const metadata = notification.metadata as any;
+                const dividendAssets = metadata?.assets;
                 
                 return (
                   <div
                     key={notification.id}
-                    className={`p-3 cursor-pointer hover:bg-muted/50 transition-colors ${
+                    className={`p-3 cursor-pointer hover:bg-muted/50 transition-colors relative group ${
                       !notification.is_read ? "bg-primary/5" : ""
                     }`}
                     onClick={() => {
-                      if (!notification.is_read) markNotificationRead(notification.id);
+                      if (!notification.is_read) markAsRead(notification.id);
                       if (isDividend && dividendAssets?.length) toggleExpanded(notification.id);
                     }}
                   >
@@ -150,7 +152,7 @@ export const UserNotifications = () => {
                       >
                         {getNotificationIcon(notification.notification_type)}
                       </span>
-                      <div className="flex-1 min-w-0">
+                      <div className="flex-1 min-w-0 pr-6">
                         <div className="flex items-center gap-2">
                           <p className="text-sm font-medium truncate">
                             {notification.title}
@@ -166,7 +168,7 @@ export const UserNotifications = () => {
                         </div>
                         <p className="text-xs text-muted-foreground mt-0.5">
                           {isDividend 
-                            ? `You received money from the dividend. Total: $${notification.metadata?.total_amount?.toFixed(2) || '0.00'}`
+                            ? `You received money from the dividend. Total: $${metadata?.total_amount?.toFixed(2) || '0.00'}`
                             : notification.message
                           }
                         </p>
@@ -174,7 +176,7 @@ export const UserNotifications = () => {
                         {/* Expandable dividend details */}
                         {isDividend && isExpanded && dividendAssets && (
                           <div className="mt-2 p-2 bg-muted/30 rounded-md space-y-1">
-                            {dividendAssets.map((asset, idx) => (
+                            {dividendAssets.map((asset: any, idx: number) => (
                               <div key={idx} className="flex justify-between text-xs">
                                 <span className="text-muted-foreground">
                                   {asset.shares.toFixed(2)} shares
@@ -193,6 +195,18 @@ export const UserNotifications = () => {
                           })}
                         </p>
                       </div>
+                      
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="absolute top-2 right-2 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteNotification(notification.id);
+                        }}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
                     </div>
                   </div>
                 );

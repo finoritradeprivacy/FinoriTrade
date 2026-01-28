@@ -35,6 +35,9 @@ interface ProfileData {
 
 const PREMIUM_ROLES = ["FinoriPro", "FinoriAlpha", "FinoriUltra", "FinoriFamily", "FinoriGold"];
 
+import { PremiumLeaderboard } from "@/components/trading/PremiumLeaderboard";
+import { AdBanner } from "@/components/ui/AdBanner";
+
 const Profile = () => {
   const { user, signOut, resendVerificationEmail } = useAuth();
   const { usdtBalance, holdings, trades, prices, resetAll, grantReferralReward } = useSimTrade();
@@ -316,12 +319,84 @@ const Profile = () => {
   const xpProgress = calculateXpForNextLevel();
   const isProfitable = profileData.total_profit_loss >= 0;
 
-  const handleRedeemCode = () => {
-    if (promoCode.trim() === "199298AE402N") {
-      setShowSelectionDialog(true);
-      setPromoCode(""); // Clear code
-    } else {
-      sonnerToast.error("Invalid promo code");
+  const handleRedeemCode = async () => {
+    if (!promoCode.trim()) {
+        toast({
+            title: "Error",
+            description: "Please enter a code",
+            variant: "destructive"
+        });
+        return;
+    }
+    
+    // Check for hardcoded premium codes first (legacy support)
+    if (PREMIUM_ROLES.includes(promoCode)) {
+        setShowSelectionDialog(true);
+        setSelectedRole(promoCode);
+        return;
+    }
+    
+    try {
+        const { data: codeData, error: codeError } = await supabase
+            .from('promo_codes')
+            .select('*')
+            .eq('code', promoCode)
+            .eq('is_active', true)
+            .single();
+            
+        if (codeError || !codeData) {
+             toast({
+                title: "Invalid Code",
+                description: "This code is invalid or expired.",
+                variant: "destructive"
+             });
+             return;
+        }
+        
+        // Check if expired
+        if (codeData.expires_at && new Date(codeData.expires_at) < new Date()) {
+            toast({
+                title: "Expired Code",
+                description: "This code has expired.",
+                variant: "destructive"
+             });
+             return;
+        }
+
+        // Redeem
+        const { error: redeemError } = await supabase
+            .from('promo_code_redemptions')
+            .insert({
+                promo_code_id: codeData.id,
+                user_id: user?.id
+            });
+            
+        if (redeemError) {
+             toast({
+                title: "Already Redeemed",
+                description: "You have already used this code.",
+                variant: "destructive"
+             });
+             return;
+        }
+        
+        toast({
+            title: "Code Redeemed!",
+            description: `You received: ${codeData.description || 'Rewards'}`,
+        });
+        
+        // Process rewards (if any logic needed beyond just logging redemption)
+        // ...
+        
+        setPromoCode("");
+        
+    } catch (err) {
+        console.error("Redeem error:", err);
+         toast({
+            title: "Error",
+            description: "Failed to redeem code.",
+            variant: "destructive"
+         });
     }
   };
 
@@ -473,6 +548,9 @@ const Profile = () => {
           </div>
         </Card>
 
+        {/* AdBanner removed as requested */}
+
+
         {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
           <Card className="p-4">
@@ -562,26 +640,32 @@ const Profile = () => {
           </div>
         </Card>
 
-        {/* Redeem Code */}
-        <Card className="p-6 mb-6 bg-gradient-to-r from-yellow-500/20 to-yellow-600/10 border-yellow-500/30">
-          <div className="flex flex-col gap-4">
-             <div className="flex items-center gap-2">
-                <Gift className="h-6 w-6 text-yellow-500" />
-                <h3 className="text-xl font-bold text-yellow-500">Redeem Promo Code</h3>
+        {/* Redeem Code - GOLD & PROMINENT */}
+        <Card className="p-8 mb-6 bg-gradient-to-br from-yellow-500/10 via-yellow-500/5 to-background border-2 border-yellow-500/50 shadow-[0_0_15px_rgba(234,179,8,0.1)]">
+          <div className="flex flex-col gap-6">
+             <div className="flex items-center gap-3">
+                <div className="p-3 bg-yellow-500/20 rounded-full">
+                    <Gift className="h-8 w-8 text-yellow-500" />
+                </div>
+                <div>
+                    <h3 className="text-2xl font-bold text-yellow-500 uppercase tracking-wide">Redeem Code</h3>
+                    <p className="text-muted-foreground">
+                        Unlock premium status and exclusive rewards
+                    </p>
+                </div>
              </div>
-             <p className="text-muted-foreground">
-                Enter your exclusive promo code to unlock premium status and rewards.
-             </p>
-             <div className="flex gap-2">
+             
+             <div className="flex gap-3">
                 <Input 
-                  placeholder="Enter code..." 
+                  placeholder="Enter your code here..." 
                   value={promoCode}
                   onChange={(e) => setPromoCode(e.target.value)}
-                  className="bg-background/50 border-yellow-500/30 focus-visible:ring-yellow-500"
+                  className="h-12 text-lg bg-background/80 border-yellow-500/30 focus-visible:ring-yellow-500 focus-visible:border-yellow-500"
                 />
                 <Button 
                   onClick={handleRedeemCode}
-                  className="bg-yellow-500 hover:bg-yellow-600 text-black font-bold"
+                  size="lg"
+                  className="h-12 px-8 bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-600 hover:to-yellow-700 text-black font-bold text-lg shadow-lg"
                 >
                   Redeem
                 </Button>
@@ -594,6 +678,8 @@ const Profile = () => {
           <h2 className="text-2xl font-bold mb-4">Your Portfolio</h2>
           <Portfolio />
         </div>
+
+        <PremiumLeaderboard userRole={profileData.role} />
 
         <Separator className="my-6" />
 
