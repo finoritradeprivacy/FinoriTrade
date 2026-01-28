@@ -27,7 +27,7 @@ export interface Trade {
   price: number;
   totalValue: number;
   createdAt: number;
-  
+  realizedPnL?: number;
 }
 
 interface DividendAsset {
@@ -386,6 +386,9 @@ export function SimTradeProvider({ children }: { children: React.ReactNode }) {
       const newQty = holding.quantity - quantity;
       const newHolding: Holding =
         newQty > 0 ? { quantity: newQty, averageBuyPrice: holding.averageBuyPrice } : { quantity: 0, averageBuyPrice: 0 };
+      
+      const realizedPnL = (price - holding.averageBuyPrice) * quantity;
+
       const trade: Trade = {
         id: `T${Date.now()}`,
         symbol,
@@ -394,6 +397,7 @@ export function SimTradeProvider({ children }: { children: React.ReactNode }) {
         price,
         totalValue: proceeds,
         createdAt: Date.now(),
+        realizedPnL,
       };
       const order: Order = {
         id: `O${Date.now()}`,
@@ -487,6 +491,8 @@ export function SimTradeProvider({ children }: { children: React.ReactNode }) {
         let newState = { ...prev, orders: updatedOrders };
         newlyFilled.forEach(o => {
           const execPrice = Number(o.price || prices[o.symbol] || 0);
+          let realizedPnL: number | undefined;
+
           if (o.side === "buy") {
             const cost = execPrice * o.quantity;
             const h = newState.holdings[o.symbol] || { quantity: 0, averageBuyPrice: 0 };
@@ -498,6 +504,7 @@ export function SimTradeProvider({ children }: { children: React.ReactNode }) {
           } else {
             const proceeds = execPrice * o.quantity;
             const h = newState.holdings[o.symbol] || { quantity: 0, averageBuyPrice: 0 };
+            realizedPnL = (execPrice - h.averageBuyPrice) * o.quantity;
             const newQty = Math.max(0, h.quantity - o.quantity);
             newState.usdtBalance = newState.usdtBalance + proceeds;
             newState.holdings = { ...newState.holdings, [o.symbol]: { quantity: newQty, averageBuyPrice: h.averageBuyPrice } };
@@ -510,6 +517,7 @@ export function SimTradeProvider({ children }: { children: React.ReactNode }) {
             price: execPrice,
             totalValue: execPrice * o.quantity,
             createdAt: Date.now(),
+            realizedPnL,
           };
           newState = { ...newState, trades: [trade, ...newState.trades] };
         });

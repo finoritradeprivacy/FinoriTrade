@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, Circle, Flame, Shield, ShieldAlert, Timer, Settings, Wrench } from "lucide-react";
+import { CheckCircle2, Circle, Flame, Shield, ShieldAlert, Timer, Settings, Wrench, Lock, HelpCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useSimTrade } from "@/contexts/SimTradeContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -10,17 +10,7 @@ import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-
-interface Challenge {
-  id: string;
-  title: string;
-  description: string;
-  reward_usdt: number;
-  reward_xp: number;
-  target_value: number;
-  current_value: number;
-  completed: boolean;
-}
+import { generateChallenges, getChallengeConfig, ChallengeTemplate } from "@/utils/challengeTemplates";
 
 interface DayStatus {
   day: string;
@@ -28,29 +18,20 @@ interface DayStatus {
   date: string;
 }
 
-const DAILY_CHALLENGES_MOCK = [
-  {
-    id: '1',
-    title: 'Daily Trader',
-    description: 'Execute 5 trades today',
-    reward_usdt: 100,
-    reward_xp: 50,
-    target_value: 5,
-  },
-  {
-    id: '2',
-    title: 'Profit Seeker',
-    description: 'Make $1000 profit',
-    reward_usdt: 200,
-    reward_xp: 100,
-    target_value: 1000,
-  }
-];
+interface ActiveChallenge extends ChallengeTemplate {
+  current_value: number;
+  completed: boolean;
+  isLocked: boolean;
+}
 
 export const Challenges = () => {
   const { user } = useAuth();
   const { trades, addNotification } = useSimTrade();
-  const [challenges, setChallenges] = useState<Challenge[]>([]);
+  
+  const [dailyChallenges, setDailyChallenges] = useState<ActiveChallenge[]>([]);
+  const [weeklyChallenges, setWeeklyChallenges] = useState<ActiveChallenge[]>([]);
+  const [monthlyChallenges, setMonthlyChallenges] = useState<ActiveChallenge[]>([]);
+  
   const [streak, setStreak] = useState(0);
   const [weekStatus, setWeekStatus] = useState<DayStatus[]>([]);
   const [loading, setLoading] = useState(true);
@@ -75,9 +56,15 @@ export const Challenges = () => {
   useEffect(() => {
     if (user) {
       fetchUserData();
+    }
+  }, [user]);
+
+  // Separate effect for challenges to ensure role is loaded
+  useEffect(() => {
+    if (userRole !== undefined) {
       initializeChallenges();
     }
-  }, [user, trades, autoSave]); // Re-run if autoSave changes to potentially recalculate/repair
+  }, [userRole, trades]);
 
   // Countdown timer
   useEffect(() => {
@@ -113,7 +100,7 @@ export const Challenges = () => {
         .single();
       
       if (data) {
-        setUserRole(data.achievements?.role);
+        setUserRole(data.achievements?.role || 'User');
         
         const saves = Array.isArray(data.streak_save_history) ? data.streak_save_history : [];
         const emergencies = Array.isArray(data.emergency_save_history) ? data.emergency_save_history : [];
@@ -125,6 +112,7 @@ export const Challenges = () => {
         
         updateStreak(saves, emergencies, logins, data.achievements?.role, autoSave);
       } else {
+        setUserRole('User');
         updateStreak([], [], [], undefined, autoSave);
       }
     } catch (err) {
@@ -133,31 +121,125 @@ export const Challenges = () => {
     }
   };
 
-  const initializeChallenges = () => {
-    const todayTrades = trades.filter(t => {
+  const calculateProgress = (trades: any[], template: ChallengeTemplate, type: 'daily' | 'weekly' | 'monthly'): number => {
+    const now = new Date();
+    
+    // Filter trades by period
+    const filteredTrades = trades.filter(t => {
       const date = new Date(t.createdAt);
-      const today = new Date();
-      return date.getDate() === today.getDate() && 
-             date.getMonth() === today.getMonth() && 
-             date.getFullYear() === today.getFullYear();
-    });
-
-    const mappedChallenges: Challenge[] = DAILY_CHALLENGES_MOCK.map(dc => {
-      let current = 0;
-      if (dc.id === '1') {
-        current = todayTrades.length;
-      } else if (dc.id === '2') {
-        current = Math.max(0, todayTrades.reduce((acc, t) => acc + (t.totalValue > 0 ? t.totalValue * 0.05 : 0), 0)); 
+      if (type === 'daily') {
+        return date.getDate() === now.getDate() && 
+               date.getMonth() === now.getMonth() && 
+               date.getFullYear() === now.getFullYear();
+      } else if (type === 'weekly') {
+        // Simple check: same week number (approx)
+        const oneWeekAgo = new Date();
+        oneWeekAgo.setDate(now.getDate() - 7);
+        return date >= oneWeekAgo;
+      } else {
+        return date.getMonth() === now.getMonth() && 
+               date.getFullYear() === now.getFullYear();
       }
-
-      return {
-        ...dc,
-        current_value: current,
-        completed: current >= dc.target_value
-      };
     });
 
-    setChallenges(mappedChallenges);
+    switch (template.target_metric) {
+      case 'trades_count':
+        return filteredTrades.length;
+      case 'profit':
+        // Sum of realized PnL from Sell trades
+        return filteredTrades.reduce((acc: number, t: any) => acc + (t.realizedPnL || 0), 0);
+      case 'win_rate':
+        // (Winning Trades / Total Trades) * 100
+        const total = filteredTrades.length;
+        if (total === 0) return 0;
+        const wins = filteredTrades.filter((t: any) => (t.realizedPnL || 0) > 0).length;
+        return (wins / total) * 100;
+      case 'risk_reward':
+        // Needs avg win / avg loss. Simplified: (Total Win PnL / Win Count) / (Total Loss PnL / Loss Count)
+        // This is hard to calculate accurately without proper trade linking.
+        // Returning 0 for now as placeholder or maybe a mock logic
+        return 0; 
+      case 'consecutive_wins':
+        let maxStreak = 0;
+        let currentStreak = 0;
+        // Sort by time
+        const sorted = [...filteredTrades].sort((a, b) => a.createdAt - b.createdAt);
+        sorted.forEach((t: any) => {
+          if ((t.realizedPnL || 0) > 0) {
+            currentStreak++;
+            maxStreak = Math.max(maxStreak, currentStreak);
+          } else if ((t.realizedPnL || 0) < 0) {
+            currentStreak = 0;
+          }
+        });
+        return maxStreak;
+      case 'max_drawdown':
+        // Hard to calculate without equity curve. Return 0 for now.
+        return 0;
+      case 'no_overtrading':
+        // Special logic: "Progress" is trades count, but "Success" is keeping it BELOW target.
+        // We track count.
+        return filteredTrades.length;
+      case 'stop_loss_limit':
+         // We don't have explicit SL hit flag on Trade yet, only on Notifications.
+         // Approximation: Trades with big loss?
+         return 0; 
+      default:
+        return 0;
+    }
+  };
+
+  const initializeChallenges = () => {
+    const config = getChallengeConfig(userRole);
+    const now = new Date();
+    const dateStr = now.toISOString().split("T")[0]; // Daily Seed
+    
+    // Weekly Seed: Year + Week
+    const startOfYear = new Date(now.getFullYear(), 0, 1);
+    const days = Math.floor((now.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000));
+    const weekNum = Math.ceil(days / 7);
+    const weekStr = `${now.getFullYear()}-W${weekNum}`;
+
+    // Monthly Seed
+    const monthStr = `${now.getFullYear()}-${now.getMonth()}`;
+
+    const processChallenges = (
+      templates: ChallengeTemplate[], 
+      limit: number, 
+      type: 'daily' | 'weekly' | 'monthly'
+    ) => {
+      return templates.map((tpl, index) => {
+        const isLocked = index >= limit;
+        const progress = calculateProgress(trades, tpl, type);
+        
+        // Check completion based on condition
+        let completed = false;
+        if (tpl.condition === 'gt') completed = progress >= tpl.target_value;
+        else if (tpl.condition === 'lt') completed = progress <= tpl.target_value; // Logic might be inverted for "Do not exceed"
+        else if (tpl.condition === 'eq') completed = progress === tpl.target_value;
+        
+        // Special case for 'no_overtrading': fails if gt
+        if (tpl.target_metric === 'no_overtrading') {
+           completed = progress <= tpl.target_value;
+        }
+
+        return {
+          ...tpl,
+          current_value: progress,
+          completed,
+          isLocked
+        };
+      });
+    };
+
+    const dailyRaw = generateChallenges(dateStr, 'daily');
+    const weeklyRaw = generateChallenges(weekStr, 'weekly');
+    const monthlyRaw = generateChallenges(monthStr, 'monthly');
+
+    setDailyChallenges(processChallenges(dailyRaw, config.dailyCount, 'daily'));
+    setWeeklyChallenges(processChallenges(weeklyRaw, config.weeklyCount, 'weekly'));
+    setMonthlyChallenges(processChallenges(monthlyRaw, config.monthlyCount, 'monthly'));
+
     setLoading(false);
   };
 
@@ -355,28 +437,17 @@ export const Challenges = () => {
   const getCooldownText = (history: string[], limit: number, windowDays: number) => {
       if (limit === 0) return null;
       
-      // Filter recent saves within window
       const now = new Date();
       const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() - windowDays);
       
       const recentSaves = history
         .filter(d => new Date(d) > cutoff)
-        .sort((a, b) => new Date(b).getTime() - new Date(a).getTime()); // Newest first
+        .sort((a, b) => new Date(b).getTime() - new Date(a).getTime()); 
         
       if (recentSaves.length < limit) return "Available now";
       
-      // We have used 'limit' saves. The oldest one in the 'recent' list is blocking us.
-      // Wait, if limit is 2, and we used 2. 
-      // The one that frees up a slot is the OLDEST of the recent ones.
-      // Actually, any save falling out of the window frees a slot.
-      // The next slot opens when the (limit)-th most recent save expires.
-      // e.g. Used: [Today, Yesterday]. Limit 2.
-      // Slot 1 blocked by Today (expires Today+7).
-      // Slot 2 blocked by Yesterday (expires Yesterday+7).
-      // First slot to open is Yesterday+7.
-      
-      const oldestBlockingSave = recentSaves[limit - 1]; // Get the 'limit'-th recent save
+      const oldestBlockingSave = recentSaves[limit - 1]; 
       if (!oldestBlockingSave) return "Available now";
       
       const saveDate = new Date(oldestBlockingSave);
@@ -390,6 +461,52 @@ export const Challenges = () => {
       if (diffDays > 1) return `Next save in ${diffDays} days`;
       if (diffHours > 0) return `Next save in ${diffHours} hours`;
       return "Available soon";
+  };
+
+  const renderChallengeCard = (challenge: ActiveChallenge) => {
+    const config = getChallengeConfig(userRole);
+    const rewardMultiplier = config.rewardMultiplier;
+
+    return (
+      <Card key={challenge.id} className={`p-4 transition-all relative overflow-hidden ${challenge.isLocked ? 'opacity-70 bg-muted/20' : 'hover:bg-accent/5'}`}>
+        {challenge.isLocked && (
+          <div className="absolute inset-0 bg-background/50 backdrop-blur-[2px] flex flex-col items-center justify-center z-10 group cursor-help">
+             <Lock className="h-8 w-8 text-yellow-500 mb-2" />
+             <div className="bg-black/80 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity absolute top-1/2 left-1/2 -translate-x-1/2 translate-y-6 whitespace-nowrap">
+               Unlock with Finori Gold / Ultra
+             </div>
+          </div>
+        )}
+
+        <div className="flex items-start justify-between mb-3">
+          <div className="space-y-1">
+            <h4 className="font-medium flex items-center gap-2">
+              {challenge.title}
+              {challenge.completed && !challenge.isLocked && <CheckCircle2 className="h-4 w-4 text-green-500" />}
+            </h4>
+            <p className="text-sm text-muted-foreground">{challenge.description}</p>
+          </div>
+          <div className="flex gap-2">
+            <Badge variant="outline" className="bg-yellow-500/10 text-yellow-600 border-yellow-500/20">
+              +{Math.round(challenge.base_reward_usdt * rewardMultiplier)} USDT
+            </Badge>
+            <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/20">
+              +{Math.round(challenge.base_reward_xp * rewardMultiplier)} XP
+            </Badge>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">Progress</span>
+            <span className={challenge.completed ? "text-primary font-medium" : "text-muted-foreground"}>
+              {typeof challenge.current_value === 'number' ? challenge.current_value.toFixed(1) : challenge.current_value} / {challenge.target_value}
+            </span>
+          </div>
+          <Progress value={Math.min(100, (challenge.current_value / challenge.target_value) * 100)} className="h-2" />
+        </div>
+      </Card>
+    );
   };
 
   if (loading) {
@@ -415,8 +532,8 @@ export const Challenges = () => {
   const remainingEmergencies = Math.max(0, limits.emergencyPerMonth - usedEmergenciesRecent);
 
   return (
-    <div className="space-y-4 max-h-[600px] overflow-y-auto w-full">
-      {/* Daily Streak */}
+    <div className="space-y-6 max-h-[700px] overflow-y-auto w-full pr-2">
+      {/* Streak Card */}
       <Card className="p-6 bg-gradient-to-br from-primary/10 to-primary/5 border-primary/20">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
@@ -532,35 +649,29 @@ export const Challenges = () => {
 
       {/* Daily Challenges */}
       <div className="space-y-3">
-        <h3 className="text-lg font-semibold">Daily Challenges</h3>
-        {challenges.map((challenge) => (
-          <Card key={challenge.id} className="p-4 transition-all hover:bg-accent/5">
-            <div className="flex items-start justify-between mb-3">
-              <div className="space-y-1">
-                <h4 className="font-medium">{challenge.title}</h4>
-                <p className="text-sm text-muted-foreground">{challenge.description}</p>
-              </div>
-              <div className="flex gap-2">
-                <Badge variant="outline" className="bg-yellow-500/10 text-yellow-600 border-yellow-500/20">
-                  +{challenge.reward_usdt} USDT
-                </Badge>
-                <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/20">
-                  +{challenge.reward_xp} XP
-                </Badge>
-              </div>
-            </div>
+        <h3 className="text-lg font-semibold flex items-center gap-2">
+          <Flame className="h-5 w-5 text-orange-500" />
+          Daily Challenges
+        </h3>
+        {dailyChallenges.map(renderChallengeCard)}
+      </div>
 
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Progress</span>
-                <span className={challenge.completed ? "text-primary font-medium" : "text-muted-foreground"}>
-                  {challenge.current_value} / {challenge.target_value}
-                </span>
-              </div>
-              <Progress value={(challenge.current_value / challenge.target_value) * 100} className="h-2" />
-            </div>
-          </Card>
-        ))}
+      {/* Weekly Challenges */}
+      <div className="space-y-3">
+        <h3 className="text-lg font-semibold flex items-center gap-2">
+          <Timer className="h-5 w-5 text-blue-500" />
+          Weekly Challenges
+        </h3>
+        {weeklyChallenges.map(renderChallengeCard)}
+      </div>
+
+      {/* Monthly Challenges */}
+      <div className="space-y-3">
+        <h3 className="text-lg font-semibold flex items-center gap-2">
+          <Shield className="h-5 w-5 text-purple-500" />
+          Monthly Challenges
+        </h3>
+        {monthlyChallenges.map(renderChallengeCard)}
       </div>
     </div>
   );
