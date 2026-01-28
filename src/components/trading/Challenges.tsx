@@ -10,6 +10,7 @@ import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { generateChallenges, getChallengeConfig, ChallengeTemplate } from "@/utils/challengeTemplates";
 
 interface DayStatus {
@@ -93,11 +94,40 @@ export const Challenges = () => {
   const fetchUserData = async () => {
     if (!user) return;
     try {
-      const { data, error } = await supabase
+      // Try fetching all data first
+      let { data, error } = await supabase
         .from('player_stats')
         .select('achievements, streak_save_history, emergency_save_history, login_history')
         .eq('user_id', user.id)
         .single();
+      
+      // If error 400 (likely missing columns), try fetching just achievements
+      if (error && error.code === 'PGRST100') { // 400 Bad Request usually maps to PGRST codes, but let's be safe
+          console.warn("Full player_stats fetch failed, trying fallback to achievements only...");
+          const fallback = await supabase
+            .from('player_stats')
+            .select('achievements')
+            .eq('user_id', user.id)
+            .single();
+            
+          if (!fallback.error) {
+             data = fallback.data as any;
+             error = null;
+          }
+      } else if (error && error.message?.includes('400')) {
+          // Double check for generic 400 if code isn't standard
+          console.warn("Full player_stats fetch failed (400), trying fallback...");
+          const fallback = await supabase
+            .from('player_stats')
+            .select('achievements')
+            .eq('user_id', user.id)
+            .single();
+            
+          if (!fallback.error) {
+             data = fallback.data as any;
+             error = null;
+          }
+      }
       
       if (data) {
         const achievements = (data.achievements as any) || {};
@@ -113,8 +143,9 @@ export const Challenges = () => {
         setEmergencyHistory(emergencies);
         setLoginHistory(logins);
         
-        updateStreak(saves, emergencies, logins, data.achievements?.role, autoSave);
+        updateStreak(saves, emergencies, logins, role, autoSave);
       } else {
+        console.error("Error fetching user data:", error);
         setUserRole('User');
         updateStreak([], [], [], undefined, autoSave);
       }
@@ -650,32 +681,56 @@ export const Challenges = () => {
       </Card>
 
 
-      {/* Daily Challenges */}
-      <div className="space-y-3">
-        <h3 className="text-lg font-semibold flex items-center gap-2">
-          <Flame className="h-5 w-5 text-orange-500" />
-          Daily Challenges
-        </h3>
-        {dailyChallenges.map(renderChallengeCard)}
-      </div>
+      {/* Challenges Tabs */}
+      <Tabs defaultValue="daily" className="w-full">
+        <TabsList className="grid w-full grid-cols-3 mb-4">
+          <TabsTrigger value="daily" className="flex items-center gap-2">
+            <Flame className="h-4 w-4 text-orange-500" />
+            Daily
+          </TabsTrigger>
+          <TabsTrigger value="weekly" className="flex items-center gap-2">
+            <Timer className="h-4 w-4 text-blue-500" />
+            Weekly
+          </TabsTrigger>
+          <TabsTrigger value="monthly" className="flex items-center gap-2">
+            <Shield className="h-4 w-4 text-purple-500" />
+            Monthly
+          </TabsTrigger>
+        </TabsList>
 
-      {/* Weekly Challenges */}
-      <div className="space-y-3">
-        <h3 className="text-lg font-semibold flex items-center gap-2">
-          <Timer className="h-5 w-5 text-blue-500" />
-          Weekly Challenges
-        </h3>
-        {weeklyChallenges.map(renderChallengeCard)}
-      </div>
+        <TabsContent value="daily" className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-lg font-semibold flex items-center gap-2">
+              <Flame className="h-5 w-5 text-orange-500" />
+              Daily Challenges
+            </h3>
+            <span className="text-xs text-muted-foreground">Resets every 24h</span>
+          </div>
+          {dailyChallenges.map(renderChallengeCard)}
+        </TabsContent>
 
-      {/* Monthly Challenges */}
-      <div className="space-y-3">
-        <h3 className="text-lg font-semibold flex items-center gap-2">
-          <Shield className="h-5 w-5 text-purple-500" />
-          Monthly Challenges
-        </h3>
-        {monthlyChallenges.map(renderChallengeCard)}
-      </div>
+        <TabsContent value="weekly" className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-lg font-semibold flex items-center gap-2">
+              <Timer className="h-5 w-5 text-blue-500" />
+              Weekly Challenges
+            </h3>
+            <span className="text-xs text-muted-foreground">Resets every Monday</span>
+          </div>
+          {weeklyChallenges.map(renderChallengeCard)}
+        </TabsContent>
+
+        <TabsContent value="monthly" className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+           <div className="flex items-center justify-between mb-2">
+            <h3 className="text-lg font-semibold flex items-center gap-2">
+              <Shield className="h-5 w-5 text-purple-500" />
+              Monthly Challenges
+            </h3>
+            <span className="text-xs text-muted-foreground">Resets every 1st of month</span>
+          </div>
+          {monthlyChallenges.map(renderChallengeCard)}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 };

@@ -27,12 +27,25 @@ export const SmartNotificationManager = () => {
     queryKey: ['profile', user?.id],
     queryFn: async () => {
       if (!user) return null;
-      const { data } = await supabase
+      
+      // Fetch profile basic info
+      const { data: profileData } = await supabase
         .from('profiles')
-        .select('*, player_stats(*)')
+        .select('*')
         .eq('id', user.id)
         .single();
-      return data;
+        
+      // Fetch player stats separately to avoid join issues
+      const { data: statsData } = await supabase
+        .from('player_stats')
+        .select('achievements, level')
+        .eq('user_id', user.id)
+        .single();
+        
+      return {
+        ...profileData,
+        player_stats: statsData ? [statsData] : []
+      };
     },
     enabled: !!user,
   });
