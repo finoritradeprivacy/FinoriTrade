@@ -100,7 +100,10 @@ export const Challenges = () => {
         .single();
       
       if (data) {
-        setUserRole(data.achievements?.role || 'User');
+        const achievements = (data.achievements as any) || {};
+        const role = achievements.role || 'User';
+        // console.log("Challenges: Role fetched:", role);
+        setUserRole(role);
         
         const saves = Array.isArray(data.streak_save_history) ? data.streak_save_history : [];
         const emergencies = Array.isArray(data.emergency_save_history) ? data.emergency_save_history : [];

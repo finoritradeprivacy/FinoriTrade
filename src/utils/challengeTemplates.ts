@@ -184,7 +184,9 @@ export const MONTHLY_TEMPLATES: ChallengeTemplate[] = [
   }
 ];
 
-export const getChallengeConfig = (role: string = 'User') => {
+export const getChallengeConfig = (roleInput: string = 'User') => {
+  const role = roleInput?.trim();
+  
   // Defaults for Free/Pro
   let config = {
     dailyCount: 3,
