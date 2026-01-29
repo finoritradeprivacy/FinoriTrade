@@ -510,7 +510,9 @@ export const TradingChart = ({
 
         candleCacheRef.current[cacheKey] = extended;
         candlestickSeriesRef.current.setData(extended);
-        setLastCandle(extended[extended.length - 1] || null);
+        const last = extended[extended.length - 1] || null;
+        setLastCandle(last);
+        lastCandleRef.current = last;
         const recentFromExtended = extended.slice(-5).map(c => Number(c.close));
         liveRecentClosesRef.current[cacheKey] = recentFromExtended;
         safeSaveCandles(`candles_${cacheKey}`, extended);
@@ -584,7 +586,9 @@ export const TradingChart = ({
 
       candleCacheRef.current[cacheKey] = chartData;
       candlestickSeriesRef.current.setData(chartData);
-      setLastCandle(chartData[chartData.length - 1] || null);
+      const last = chartData[chartData.length - 1] || null;
+      setLastCandle(last);
+      lastCandleRef.current = last;
       const recentFromGenerated = chartData.slice(-5).map(c => Number(c.close));
       liveRecentClosesRef.current[cacheKey] = recentFromGenerated;
       safeSaveCandles(`candles_${cacheKey}`, chartData);
@@ -603,6 +607,14 @@ export const TradingChart = ({
       toast.error(`Please wait ${timeframeCooldown}s before switching timeframes`);
       return;
     }
+    
+    // Block updates and clear state immediately
+    setIsLoadingData(true);
+    if (candlestickSeriesRef.current) {
+      candlestickSeriesRef.current.setData([]);
+    }
+    lastCandleRef.current = null;
+    
     setTimeframe(newTimeframe);
     lastTimeframeChangeRef.current = Date.now();
     setTimeframeCooldown(20);
