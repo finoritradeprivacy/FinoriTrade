@@ -510,9 +510,9 @@ export const TradingChart = ({
 
         candleCacheRef.current[cacheKey] = extended;
         candlestickSeriesRef.current.setData(extended);
-        const last = extended[extended.length - 1] || null;
-        setLastCandle(last);
-        lastCandleRef.current = last;
+        const latestCandle = extended[extended.length - 1] || null;
+        setLastCandle(latestCandle);
+        lastCandleRef.current = latestCandle;
         const recentFromExtended = extended.slice(-5).map(c => Number(c.close));
         liveRecentClosesRef.current[cacheKey] = recentFromExtended;
         safeSaveCandles(`candles_${cacheKey}`, extended);
