@@ -640,8 +640,8 @@ export const TradingChart = ({
       liveRecentClosesRef.current[cacheKey] = updatedRecent.slice(-5);
     }
 
-    if (lastCandle) {
-      const priceDiffPercent = Math.abs((currentPrice - lastCandle.close) / lastCandle.close);
+    if (lastCandleRef.current) {
+      const priceDiffPercent = Math.abs((currentPrice - lastCandleRef.current.close) / lastCandleRef.current.close);
       if (priceDiffPercent > 0.1) {
         const resetKey = `${asset.id}_${timeframe}`;
         delete candleCacheRef.current[resetKey];
@@ -651,59 +651,106 @@ export const TradingChart = ({
       }
     }
 
-    setLastCandle(prev => {
-      let next: CandlestickData;
-      if (!prev || prev.time !== bucketTime) {
-        const open = prev?.close ?? currentPrice;
-        next = {
-          time: bucketTime,
-          open,
-          high: currentPrice,
-          low: currentPrice,
-          close: currentPrice
-        } as CandlestickData;
-      } else {
-        next = {
-          time: bucketTime,
-          open: prev.open,
-          high: Math.max(prev.high, currentPrice),
-          low: Math.min(prev.low, currentPrice),
-          close: currentPrice
-        } as CandlestickData;
-      }
-      next = normalizeCandleBody(next, currentPrice);
-
-      const validatedNext = validateCandle(next);
-      if (!validatedNext) {
-        return prev;
-      }
-
-      candlestickSeriesRef.current?.update(validatedNext);
-
-      const key = asset ? `${asset.id}_${timeframe}` : '';
-      if (key) {
-        const [, maxCandles] = getCandleLimits(timeframe);
+    // Gap filling for 1s timeframe
+    if (lastCandleRef.current && lastCandleRef.current.time && timeframe === '1s') {
+      const lastTime = Number(lastCandleRef.current.time);
+      if (bucketTime > lastTime + timeframeSeconds) {
+        let fillTime = lastTime + timeframeSeconds;
+        let fillPrice = lastCandleRef.current.close;
+        const key = asset ? `${asset.id}_${timeframe}` : '';
         const existing = candleCacheRef.current[key] || [];
-        let updated: CandlestickData[];
-        if (!prev || prev.time !== bucketTime) {
-          updated = [...existing, validatedNext];
-          if (updated.length > maxCandles) {
-            updated = updated.slice(updated.length - maxCandles);
+        let updatedCache = [...existing];
+        const [, maxCandles] = getCandleLimits(timeframe);
+        const volPerc = getVolatilityForTimeframe(timeframe);
+
+        while (fillTime < bucketTime) {
+          const change = (Math.random() - 0.5) * volPerc * 0.5;
+          const open = fillPrice;
+          let close = open * (1 + change);
+          if (close <= 0) close = open;
+          
+          const high = Math.max(open, close) * (1 + Math.random() * volPerc * 0.2);
+          const low = Math.min(open, close) * (1 - Math.random() * volPerc * 0.2);
+          
+          const filler = validateCandle({
+            time: fillTime as UTCTimestamp,
+            open,
+            high,
+            low,
+            close
+          });
+
+          if (filler) {
+            candlestickSeriesRef.current.update(filler);
+            updatedCache.push(filler);
+            fillPrice = close;
+            lastCandleRef.current = filler; // Advance ref
           }
-        } else {
-          updated = existing.length ? [...existing] : [];
-          if (updated.length) {
-            updated[updated.length - 1] = validatedNext;
-          } else {
-            updated = [validatedNext];
-          }
+          fillTime += timeframeSeconds;
         }
-        candleCacheRef.current[key] = updated;
-        safeSaveCandles(`candles_${key}`, updated);
+
+        if (updatedCache.length > maxCandles) {
+          updatedCache = updatedCache.slice(updatedCache.length - maxCandles);
+        }
+        candleCacheRef.current[key] = updatedCache;
+        safeSaveCandles(`candles_${key}`, updatedCache);
       }
-      return validatedNext;
-    });
-  }, [asset?.id, asset?.current_price, timeframe]);
+    }
+
+    const prev = lastCandleRef.current;
+    let next: CandlestickData;
+    
+    if (!prev || prev.time !== bucketTime) {
+      const open = prev?.close ?? currentPrice;
+      next = {
+        time: bucketTime,
+        open,
+        high: currentPrice,
+        low: currentPrice,
+        close: currentPrice
+      } as CandlestickData;
+    } else {
+      next = {
+        time: bucketTime,
+        open: prev.open,
+        high: Math.max(prev.high, currentPrice),
+        low: Math.min(prev.low, currentPrice),
+        close: currentPrice
+      } as CandlestickData;
+    }
+    next = normalizeCandleBody(next, currentPrice);
+
+    const validatedNext = validateCandle(next);
+    if (!validatedNext) {
+      return;
+    }
+
+    candlestickSeriesRef.current.update(validatedNext);
+    setLastCandle(validatedNext);
+    lastCandleRef.current = validatedNext;
+
+    const key = asset ? `${asset.id}_${timeframe}` : '';
+    if (key) {
+      const [, maxCandles] = getCandleLimits(timeframe);
+      const existing = candleCacheRef.current[key] || [];
+      let updated: CandlestickData[];
+      if (!prev || prev.time !== bucketTime) {
+        updated = [...existing, validatedNext];
+        if (updated.length > maxCandles) {
+          updated = updated.slice(updated.length - maxCandles);
+        }
+      } else {
+        updated = existing.length ? [...existing] : [];
+        if (updated.length) {
+          updated[updated.length - 1] = validatedNext;
+        } else {
+          updated = [validatedNext];
+        }
+      }
+      candleCacheRef.current[key] = updated;
+      safeSaveCandles(`candles_${key}`, updated);
+    }
+  }, [asset?.id, asset?.current_price, timeframe, tick]);
 
 
   // Load trades for current asset

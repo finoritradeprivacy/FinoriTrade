@@ -94,63 +94,54 @@ export const Challenges = () => {
   const fetchUserData = async () => {
     if (!user) return;
     try {
-      // Try fetching all data first
-      let { data, error } = await supabase
+      // 1. Fetch role (achievements) - Critical, do this first and separately
+      let role = 'User';
+      const { data: roleData, error: roleError } = await supabase
         .from('player_stats')
-        .select('achievements, streak_save_history, emergency_save_history, login_history')
+        .select('achievements')
         .eq('user_id', user.id)
         .single();
       
-      // If error 400 (likely missing columns), try fetching just achievements
-      if (error && error.code === 'PGRST100') { // 400 Bad Request usually maps to PGRST codes, but let's be safe
-          console.warn("Full player_stats fetch failed, trying fallback to achievements only...");
-          const fallback = await supabase
-            .from('player_stats')
-            .select('achievements')
-            .eq('user_id', user.id)
-            .single();
-            
-          if (!fallback.error) {
-             data = fallback.data as any;
-             error = null;
-          }
-      } else if (error && error.message?.includes('400')) {
-          // Double check for generic 400 if code isn't standard
-          console.warn("Full player_stats fetch failed (400), trying fallback...");
-          const fallback = await supabase
-            .from('player_stats')
-            .select('achievements')
-            .eq('user_id', user.id)
-            .single();
-            
-          if (!fallback.error) {
-             data = fallback.data as any;
-             error = null;
-          }
+      if (roleData && roleData.achievements) {
+        const achievements = (roleData.achievements as any) || {};
+        role = achievements.role || 'User';
       }
       
-      if (data) {
-        const achievements = (data.achievements as any) || {};
-        const role = achievements.role || 'User';
-        // console.log("Challenges: Role fetched:", role);
-        setUserRole(role);
-        
-        const saves = Array.isArray(data.streak_save_history) ? data.streak_save_history : [];
-        const emergencies = Array.isArray(data.emergency_save_history) ? data.emergency_save_history : [];
-        const logins = Array.isArray(data.login_history) ? data.login_history : [];
-        
-        setSaveHistory(saves);
-        setEmergencyHistory(emergencies);
-        setLoginHistory(logins);
-        
-        updateStreak(saves, emergencies, logins, role, autoSave);
-      } else {
-        console.error("Error fetching user data:", error);
-        setUserRole('User');
-        updateStreak([], [], [], undefined, autoSave);
+      // Always set role, even if default
+      setUserRole(role);
+
+      // 2. Try fetching streak data - Secondary
+      let saves: string[] = [];
+      let emergencies: string[] = [];
+      let logins: string[] = [];
+
+      try {
+        const { data: streakData, error: streakError } = await supabase
+            .from('player_stats')
+            .select('streak_save_history, emergency_save_history, login_history')
+            .eq('user_id', user.id)
+            .single();
+            
+        if (!streakError && streakData) {
+            saves = Array.isArray(streakData.streak_save_history) ? streakData.streak_save_history : [];
+            emergencies = Array.isArray(streakData.emergency_save_history) ? streakData.emergency_save_history : [];
+            logins = Array.isArray(streakData.login_history) ? streakData.login_history : [];
+        } else {
+            console.warn("Streak data fetch failed (likely missing columns), using defaults:", streakError?.message);
+        }
+      } catch (streakErr) {
+          console.warn("Streak data fetch exception:", streakErr);
       }
+      
+      setSaveHistory(saves);
+      setEmergencyHistory(emergencies);
+      setLoginHistory(logins);
+      
+      updateStreak(saves, emergencies, logins, role, autoSave);
+
     } catch (err) {
       console.error("Error fetching user data:", err);
+      setUserRole('User'); // Fallback
       updateStreak([], [], [], undefined, autoSave);
     }
   };
@@ -566,7 +557,7 @@ export const Challenges = () => {
   const remainingEmergencies = Math.max(0, limits.emergencyPerMonth - usedEmergenciesRecent);
 
   return (
-    <div className="space-y-6 max-h-[700px] overflow-y-auto w-full pr-2">
+    <div className="space-y-6 w-full h-full flex flex-col">
       {/* Streak Card */}
       <Card className="p-6 bg-gradient-to-br from-primary/10 to-primary/5 border-primary/20">
         <div className="flex items-center justify-between mb-4">
