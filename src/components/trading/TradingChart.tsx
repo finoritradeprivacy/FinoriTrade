@@ -284,6 +284,7 @@ export const TradingChart = ({
   const currentAssetIdRef = useRef<string | null>(null);
   const candleCacheRef = useRef<Record<string, CandlestickData[]>>({});
   const liveRecentClosesRef = useRef<Record<string, number[]>>({});
+  const lastCandleRef = useRef<CandlestickData | null>(null);
 
   // Price update countdown - 1 second updates
   useEffect(() => {
