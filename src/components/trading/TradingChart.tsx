@@ -42,7 +42,7 @@ interface TradingChartProps {
   asset: Asset;
 }
 
-type Timeframe = '1s' | '1m' | '5m' | '15m' | '1h' | '4h' | '1d' | '1w';
+type Timeframe = '1m' | '5m' | '15m' | '1h' | '4h' | '1d' | '1w';
 type ChartType = 'candlestick' | 'line' | 'ohlc';
 type DrawingTool = 'none' | 'trendline' | 'horizontal' | 'rectangle' | 'text';
 
@@ -134,7 +134,6 @@ const sanitizeDrawings = (raw: unknown): Drawing[] => {
 
 const getTimeframeSeconds = (tf: Timeframe): number => {
   switch (tf) {
-    case '1s': return 1;
     case '1m': return 60;
     case '5m': return 300;
     case '15m': return 900;
@@ -148,7 +147,6 @@ const getTimeframeSeconds = (tf: Timeframe): number => {
 
 const getVolatilityForTimeframe = (tf: Timeframe): number => {
   switch (tf) {
-    case '1s': return 0.0005;
     case '1m': return 0.002;
     case '5m': return 0.004;
     case '15m': return 0.006;
@@ -180,7 +178,6 @@ const getPriceFormatForPrice = (price: number) => {
 
 const getCandleLimits = (timeframe: Timeframe): [number, number] => {
   switch (timeframe) {
-    case '1s': return [2000, 2000];
     case '1m': return [2000, 2000];
     case '15m': return [1000, 1750];
     case '5m': return [1000, 1750];
@@ -229,7 +226,6 @@ const normalizeCandleBody = (candle: CandlestickData, price: number): Candlestic
 
 const getTableForTimeframe = (tf: Timeframe): string => {
   switch (tf) {
-    case '1s':
     case '1m':
     case '5m':
     case '15m':
@@ -259,7 +255,7 @@ export const TradingChart = ({
   const priceLinesRef = useRef<IPriceLine[]>([]);
   const trendlineSeriesRef = useRef<Map<string, ISeriesApi<'Line'>>>(new Map());
   const markersRef = useRef<SeriesMarker<Time>[] | null>(null);
-  const [timeframe, setTimeframe] = useState<Timeframe>('1s');
+  const [timeframe, setTimeframe] = useState<Timeframe>('1m');
   const [timeframeCooldown, setTimeframeCooldown] = useState(0);
   const lastTimeframeChangeRef = useRef<number>(0);
   const [chartType, setChartType] = useState<ChartType>('candlestick');
@@ -664,51 +660,7 @@ export const TradingChart = ({
       }
     }
 
-    // Gap filling for 1s timeframe
-    if (lastCandleRef.current && lastCandleRef.current.time && timeframe === '1s') {
-      const lastTime = Number(lastCandleRef.current.time);
-      if (bucketTime > lastTime + timeframeSeconds) {
-        let fillTime = lastTime + timeframeSeconds;
-        let fillPrice = lastCandleRef.current.close;
-        const key = asset ? `${asset.id}_${timeframe}` : '';
-        const existing = candleCacheRef.current[key] || [];
-        let updatedCache = [...existing];
-        const [, maxCandles] = getCandleLimits(timeframe);
-        const volPerc = getVolatilityForTimeframe(timeframe);
 
-        while (fillTime < bucketTime) {
-          const change = (Math.random() - 0.5) * volPerc * 0.5;
-          const open = fillPrice;
-          let close = open * (1 + change);
-          if (close <= 0) close = open;
-          
-          const high = Math.max(open, close) * (1 + Math.random() * volPerc * 0.2);
-          const low = Math.min(open, close) * (1 - Math.random() * volPerc * 0.2);
-          
-          const filler = validateCandle({
-            time: fillTime as UTCTimestamp,
-            open,
-            high,
-            low,
-            close
-          });
-
-          if (filler) {
-            candlestickSeriesRef.current.update(filler);
-            updatedCache.push(filler);
-            fillPrice = close;
-            lastCandleRef.current = filler; // Advance ref
-          }
-          fillTime += timeframeSeconds;
-        }
-
-        if (updatedCache.length > maxCandles) {
-          updatedCache = updatedCache.slice(updatedCache.length - maxCandles);
-        }
-        candleCacheRef.current[key] = updatedCache;
-        safeSaveCandles(`candles_${key}`, updatedCache);
-      }
-    }
 
     const prev = lastCandleRef.current;
     let next: CandlestickData;
@@ -1070,7 +1022,7 @@ export const TradingChart = ({
       toast.success('Last drawing removed');
     }
   };
-  const timeframes: Timeframe[] = ['1s', '1m', '5m', '15m', '1h', '4h', '1d', '1w'];
+  const timeframes: Timeframe[] = ['1m', '5m', '15m', '1h', '4h', '1d', '1w'];
   return <Card className="p-0 bg-[#0B0E11] border-[#2A2E39]">
       {/* Header */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between p-4 border-b border-[#2A2E39]">
