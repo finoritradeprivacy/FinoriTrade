@@ -750,7 +750,7 @@ export const TradingChart = ({
       candleCacheRef.current[key] = updated;
       safeSaveCandles(`candles_${key}`, updated);
     }
-  }, [asset?.id, asset?.current_price, timeframe, tick]);
+  }, [asset?.id, asset?.current_price, timeframe]);
 
 
   // Load trades for current asset
